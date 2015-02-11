@@ -11,7 +11,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
 $VERSION     = 1.00;
 @ISA         = qw(Exporter);
 @EXPORT      = ();
-@EXPORT_OK   = qw(rel_posent rel_prob rel_access);
+@EXPORT_OK   = qw(rel_posent rel_probs rel_access);
 %EXPORT_TAGS = ();
 
 
