@@ -24,27 +24,30 @@ sub read_dotplot{
   my $seq;
   my $seq_start;
 
-  open(DOT, "<".$dotplot);
-  while(<DOT>){
-    if(defined($seq_start)){
-      undef($seq_start), next  unless /^([AUCGTNaucgtn]+)/;
-      $seq .= $1;
-    }
+  if( -e $dotplot ){
+    open(DOT, "<".$dotplot);
+    while(<DOT>){
+      if(defined($seq_start)){
+        undef($seq_start), next  unless /^([AUCGTNaucgtn]+)/;
+        $seq .= $1;
+      }
 
-    $seq_start = 1 if /^\/sequence/;
+      $seq_start = 1 if /^\/sequence/;
 
-    next unless /(\d+)\s+(\d+)\s+([0-9.Ee-]+)\s+(ubox|lbox)/;
-    my ($i, $j, $p) = ($1,$2,$3);
-    if($4 eq "ubox"){
-      $p *= $p;
-      $probs{$i,$j} = $p;
-    } else {
-      $mfe{$i,$j} = 1;
+      next unless /(\d+)\s+(\d+)\s+([0-9.Ee-]+)\s+(ubox|lbox)/;
+      my ($i, $j, $p) = ($1,$2,$3);
+      if($4 eq "ubox"){
+        $p *= $p;
+        $probs{$i,$j} = $p;
+      } else {
+        $mfe{$i,$j} = 1;
+      }
     }
+    close(DOT);
+    return ($seq, \%mfe, \%probs);
+  } else {
+    return undef;
   }
-  close(DOT);
-
-  return ($seq, \%mfe, \%probs);
 }
 
 1;
