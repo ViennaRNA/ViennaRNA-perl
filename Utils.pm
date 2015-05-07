@@ -9,8 +9,8 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
 $VERSION     = 1.00;
 @ISA         = qw(Exporter);
 @EXPORT      = ();
-@EXPORT_OK   = qw(make_pair_table DB2Shape DB2Helix mergeHelices);
-%EXPORT_TAGS = ( Structures => [qw(&make_pair_table &DB2Shape &DB2Helix &mergeHelices)] );
+@EXPORT_OK   = qw(make_pair_table DB2PairList DB2Shape DB2Helix mergeHelices);
+%EXPORT_TAGS = ( Structures => [qw(&make_pair_table &DB2PairList &DB2Shape &DB2Helix &mergeHelices)] );
 
 
 sub make_pair_table {
@@ -37,6 +37,19 @@ sub make_pair_table {
    }
    die ("too few closed brackets in make_pair_table") if ($hx!=0);
    return \@table;
+}
+
+sub DB2PairList {
+  my $struct  = shift;
+  my $pt      = make_pair_table($struct);
+  my %plist   = ();
+
+  for(my $i = 1; $i <= $pt->[0]; $i++){
+    next unless $i < $pt->[$i];
+    $plist{$i,$pt->[$i]} = 1;
+  }
+
+  return \%plist;
 }
 
 sub DB2Shape{
