@@ -261,6 +261,196 @@ sub FMeasure{
   return 0;
 }
 
+=head2  Bootstrap($data, $intervals = [95], $n = 1000)
+
+I<Compute confidence intervals via bootstrapping>
+
+This subroutine computes a set of confidence intervals of mean
+values using the bootstrapping method.
+
+The input data B<$data> has to be a reference to an array of data points,
+which themself may either be a I<SCALAR>, or a I<HASH> of scalars.
+The additional, optional arguments B<$interval>, and B<$n> may be used to
+specify the confidence intervals to compute, and the number of iterations
+of the bootstrapping method, respectively. Here, B<$intervals> has to be
+a reference to an array of scalar integer values in the range of [1 .. 99],
+and B<$n> a positive integer number.
+
+The subroutine computes the arithmetic mean of the input data and each
+of the requested confidence intervals. The confidence interval data is
+then stored in a I<HASH> with the following keys:
+
+=over
+
+=item B<INTERVAL> ... The interval (as given in the input arguments)
+
+=item B<FROM> ... Lower bound of the confidence interval
+
+=item B<TO> ... Upper bound of the confidence interval
+
+=back
+
+The function returns a pair of two values
+
+B<($mean, $interval_data)>
+
+whose data type entirely depends on the input data types passed to it.
+While the data type of the entries in B<$data> affects both output values,
+the number of intervals passed via the B<$intervals> argument influences
+only the second variable of the returned pair:
+
+=over
+
+=item * I<$intervals is a single number>
+
+B<$interval_data> is a I<HASH> reference pointing to the computed data.
+
+=item * I<$intervals is an array of numbers>:
+
+B<$interval_data> is an I<ARRAY> reference pointing to a list of
+I<HASH>es that contain the individual confidence interval data.
+
+=item * I<$data is an array of single numbers>:
+
+B<$mean> is a single I<SCALAR> value representing the arithmetic mean
+of the input data.
+
+=item * I<$data is an array of hashes of numbers>:
+
+B<$mean> is a I<HASH> reference having the same keys as the input data.
+Each associated value represents the arithmetic mean of the particular
+input data subset.
+
+Furthermore, the keys B<FROM>, and B<TO> within the I<HASH> reference(s)
+of B<$interval_data> do not represent I<SCALAR> values, but are I<HASH>
+references themself, where the keys are, again, the same as provided by
+the input data.
+
+=back
+
+=cut
+
+sub Bootstrap{
+  my $default_key = "some_very_unlikely_hash_key";
+  my $data        = shift;
+  my $intervals   = shift;
+  my $bootstrap_n = shift;
+
+  # first prepare the input data
+  my @input_data = ();
+  if(ref($data->[0]) eq 'HASH'){
+    @input_data = @{$data};
+  } else {
+    foreach my $d (@{$data}){
+      my %h;
+      $h{$default_key} = $d;
+      push @input_data, \%h;
+    }
+  }
+
+  # second prepare the confidence intervals
+  my @confidence_intervals;
+
+  if(defined($intervals)){
+    if(ref($intervals) eq 'ARRAY'){
+      @confidence_intervals = @{$intervals};
+    } elsif(int($intervals) == $intervals){
+      push @confidence_intervals, $intervals;
+    }
+  }
+
+  push @confidence_intervals, 95 if not @confidence_intervals;
+
+  # last we assign a default number of repetitions if not specified directly
+  $bootstrap_n  = 1000 if not defined($bootstrap_n);
+
+  # now, lets start the fun!
+
+  my $sample_n  = scalar(@input_data);
+  my @keys      = keys(%{$input_data[0]});
+
+  my %bootstrap_means;
+  my %input_mean;
+
+  # compute simple mean value
+  foreach my $k (@keys) {
+    for(my $j = 0; $j < $sample_n; $j++){
+      $input_mean{$k} += $input_data[$j]->{$k};
+    }
+    $input_mean{$k} /= $sample_n;
+  }
+
+  # generate bootstrap distribution of sample means
+  for(my $n = 0; $n < $bootstrap_n; $n++){
+    for(my $j = 0; $j < $sample_n; $j++){
+      my $pos = int(rand($sample_n - 1));
+      foreach my $k (@keys) {
+        if(!exists($bootstrap_means{$k})){
+          my @a = ();
+          $bootstrap_means{$k} = \@a;
+        }
+        if(defined($bootstrap_means{$k}->[$n])){
+          $bootstrap_means{$k}->[$n] += $input_data[$pos]->{$k};
+        } else {
+          $bootstrap_means{$k}->[$n] = $input_data[$pos]->{$k};
+        }
+      }
+    }
+    foreach my $k (@keys) {
+      $bootstrap_means{$k}->[$n] /= $sample_n;
+    }
+  }
+
+  # sort the bootstrapped mean values
+  my %sorted_bootstrap_means;
+  foreach my $k (@keys) {
+    my @sorted_a = sort(@{$bootstrap_means{$k}});
+    $sorted_bootstrap_means{$k} = \@sorted_a;
+  }
+
+  # compose the output
+  my @output = ();
+  for(my $i = 0; $i < @confidence_intervals; $i++){
+    my %dat;
+    my $percentile = (100 - $confidence_intervals[$i]) / 2.;
+    my $pos1 = int(($percentile / 100.) * $bootstrap_n - 0.5);
+    my $pos2 = int(((100. - $percentile) / 100.) * $bootstrap_n - 0.5);
+
+    $dat{INTERVAL}  = $confidence_intervals[$i];
+
+    if((scalar(@keys) == 1) and ($keys[0] eq $default_key)){
+      $dat{FROM}      = $sorted_bootstrap_means{$default_key}->[$pos1];
+      $dat{TO}        = $sorted_bootstrap_means{$default_key}->[$pos2];
+    } else {
+      my %from;
+      my %to;
+
+      $dat{FROM} = \%from;
+      $dat{TO} = \%to;
+
+      foreach my $k (@keys) {
+        $dat{FROM}->{$k} = $sorted_bootstrap_means{$k}->[$pos1];
+        $dat{TO}->{$k}   = $sorted_bootstrap_means{$k}->[$pos2];
+      }
+    }
+    push @output, \%dat;
+  }
+
+  my ($out_mean, $out);
+  if((scalar(@keys) == 1) and ($keys[0] eq $default_key)){
+    $out_mean = $input_mean{$default_key};
+  } else {
+    $out_mean = \%input_mean;
+  }
+  if(scalar(@confidence_intervals) == 1){
+    $out = $output[0];
+  } else {
+    $out = \@output;
+  }
+
+  return ($out_mean, $out);
+}
+
 1;
 
 =head1  SEE ALSO
