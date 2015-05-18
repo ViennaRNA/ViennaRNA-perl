@@ -1,4 +1,4 @@
-package ViennaRNA::Benchmark;
+package RNA::Benchmark;
 
 use strict;
 use Exporter;
@@ -25,7 +25,7 @@ Ronny Lorenz (ronny@tbi.univie.ac.at)
 
 =head1 NAME
 
-ViennaRNA::Benchmark - A set of subroutines to benchmark RNA secondary structure
+RNA::Benchmark - A set of subroutines to benchmark RNA secondary structure
 prediction performance
 
 =head1 DESCRIPTION
@@ -34,7 +34,7 @@ This package provides various subroutines for benchmarking the prediction
 performance of RNA secondary structure prediction tools.
 The basic data structure for comparing secondary structures is a pair table,
 which can be generated from dot-bracket annotation via the make_pair_table()
-subroutine of the ViennaRNA::Utils package.
+subroutine of the RNA::Utils package.
 
 =head1 METHODS
 
@@ -267,9 +267,9 @@ sub FMeasure{
 
 =over
 
-=item * ViennaRNA::Utils ... For converting secondary structures to pair_table format
+=item * RNA::Utils ... For converting secondary structures to pair_table format
 
-=item * ViennaRNA::Files ... For parsing secondary structures from different input file formats
+=item * RNA::Files ... For parsing secondary structures from different input file formats
 
 =back
 

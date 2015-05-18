@@ -1,6 +1,4 @@
-#!/usr/bin/perl
-#
-package ViennaRNA::Reliability;
+package RNA::Reliability;
 
 use strict;
 use Exporter;

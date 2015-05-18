@@ -1,4 +1,4 @@
-package ViennaRNA::Utils;
+package RNA::Utils;
 
 use strict;
 use Exporter;
