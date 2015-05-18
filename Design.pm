@@ -547,36 +547,4 @@ sub make_pair_table {
   return @ptable;
 }
 
-__END__
-
-  # A,N,N,N,N
-  # A,U,R,Y,R
-  # 1,1,2,2,2
-  # A,U,A,U,A
-  # A,U,A,U,G
-  # A,U,G,U,A
-  # A,U,G,U,G
-  # A,U,G,C,G
-  
-  # C,N,N,N,N
-  # C,G,Y,R,Y
-  # 1,1,2,2,2
-  # C,G,C,G,C
-  # C,G,C,G,U
-  # C,G,U,G,U
-  # C,G,U,G,C
-  # C,G,U,A,U
-
-  # G,N,N,N,N,N,N
-  # G,Y,R,Y,R,Y,R
-  # G,U,G,C,G,U,A,U
-  #
-  # P(U) == P(A)
-  # whenever A => AU
-  # whenever U => UR
-  #          A=.5 => U=1
-  #          U=.5 => G,C=.5
-  #
-  # whenever C => CG
-  # whenever G => GY
-
+1;
