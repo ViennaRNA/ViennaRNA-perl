@@ -11,12 +11,12 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
 $VERSION     = 1.00;
 @ISA         = qw(Exporter);
 @EXPORT      = ();
-@EXPORT_OK   = qw(rel_posent rel_probs rel_access);
+@EXPORT_OK   = qw(PositionalEntropy Probability Accessibility);
 %EXPORT_TAGS = ();
 
 
 
-sub rel_posent{
+sub PositionalEntropy{
   my @pp;
   my @sp;
   my $log2  = log(2);
@@ -47,7 +47,7 @@ sub rel_posent{
   return \@sp;
 }
 
-sub rel_probs{
+sub Probability{
   my $probs = shift;
   my $mfe   = shift;
   my $n     = shift;
@@ -73,7 +73,7 @@ sub rel_probs{
   return \@sp;
 }
 
-sub rel_access {
+sub Accessibility{
   my $probs = shift;
   my $mfe   = shift;
   my $n     = shift;

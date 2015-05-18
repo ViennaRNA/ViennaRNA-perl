@@ -9,8 +9,8 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
 $VERSION     = 1.00;
 @ISA         = qw(Exporter);
 @EXPORT      = ();
-@EXPORT_OK   = qw(make_pair_table DB2PairList DB2Shape DB2Helix mergeHelices);
-%EXPORT_TAGS = ( Structures => [qw(&make_pair_table &DB2PairList &DB2Shape &DB2Helix &mergeHelices)] );
+@EXPORT_OK   = qw(make_pair_table DB2PairList DB2Shape DB2Helix MergeHelices);
+%EXPORT_TAGS = ( Structures => [qw(&make_pair_table &DB2PairList &DB2Shape &DB2Helix &MergeHelices)] );
 
 
 sub make_pair_table {
@@ -183,7 +183,7 @@ sub DB2Helix{
 # this function will fail if the input helix list is not sorted
 # ascending by helix start position
 #
-sub mergeHelices{
+sub MergeHelices{
   my ($helices, $max_dist) = @_;
   my $merged = 0;
 

@@ -9,15 +9,15 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
 $VERSION     = 1.00;
 @ISA         = qw(Exporter);
 @EXPORT      = ();
-@EXPORT_OK   = qw(compareStructures
+@EXPORT_OK   = qw(CompareStructures
                   TruePositiveRate
                   PositivePredictiveValue
                   MathewsCorrelationCoefficient
                   FMeasure);
 
-%EXPORT_TAGS = (  ALL => [qw(&compareStructures &TruePositiveRate &PositivePredictiveValue &MathewsCorrelationCoefficient &FMeasure)],
+%EXPORT_TAGS = (  ALL => [qw(&CompareStructures &TruePositiveRate &PositivePredictiveValue &MathewsCorrelationCoefficient &FMeasure)],
                   MEASURES => [qw(&TruePositiveRate &PositivePredictiveValue &MathewsCorrelationCoefficient &FMeasure)],
-                  MATCHERS => [qw(&compareStructures)]);
+                  MATCHERS => [qw(&CompareStructures)]);
 
 =head1 AUTHOR
 
@@ -70,7 +70,7 @@ the false positives $FP.
 
 =cut
 
-sub compareStructures{
+sub CompareStructures{
   my $pt_gold   = shift;
   my $pt_other  = shift;
   my $fuzzy     = shift;
@@ -267,9 +267,9 @@ sub FMeasure{
 
 =over
 
-=item * ViennaRNA::Utils  for converting secondary structures to pair_table format
+=item * ViennaRNA::Utils ... For converting secondary structures to pair_table format
 
-=item * ViennaRNA::Files  for parsing secondary structures from different input file formats
+=item * ViennaRNA::Files ... For parsing secondary structures from different input file formats
 
 =back
 
