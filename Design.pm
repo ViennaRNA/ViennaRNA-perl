@@ -6,16 +6,54 @@ use Carp;
 
 use Exporter;
 
-our $VERSION     = 1.00;
-our @ISA = qw(Exporter);
-our @EXPORT      = ();
-our @EXPORT_OK   = ();
+our $VERSION    = 1.00;
+our @ISA        = qw(Exporter);
+our @EXPORT     = ();
+our @EXPORT_OK  = ();
+
+=head1 AUTHOR
+
+Stefan Badelt (stef@tbi.univie.ac.at)
+
+=head1 NAME
+
+RNA::Design -- plug-and-play design of nucleic acid sequences
+
+=head1 DESCRIPTION
+
+This package provides various subroutines to design RNA molecules optimized for
+single or multiple conformations. The properties of the RNA sequence have to be
+specified in the Main Object: $Design = RNA::Design->new(). Currently, this package
+supports every structure constraint that can be specified by two separate
+well-formed dot-bracket strings. Sequence optimization functions can be composed of
+the energies of input structures 'eos(s)', the ensemble-free-energy 'gfe()',
+the free energy of a constrained ensemble 'pfc(s)' and conditional probabilites
+of certain structures 'prob(s1,s2)'. All of these functions exist for linear
+and circular sequences and they allow to specify a temperature.
+
+Additionally, cost-functions are multiplied with a term that corrects for specified 
+base-probabilities (see set_prob()) and penalties for particular subsequences that 
+shall be avoided (see set_avoid()).
+
+=head1 METHODS
+
+=cut
+
+=head2 new()
+
+Initialize the Global Object for Nucleic Acid Design. It contains various
+public elements, such as a list of structures specified in the cost-
+function, the cost-function itself, a probability distribution of bases, 
+and a set of penalized nucleic acid sequences. See get/set routines for 
+description of public functions.
+
+=cut
 
 
 sub new {
   my $class = shift;
   my $self = {
-    cutp  => -1,
+    #cutp  => -1,
     fibo  => [0,1],
     border=> 0,
     nos   => undef,
@@ -105,6 +143,14 @@ sub new {
   return $self;
 }
 
+
+=head2 get/set parameters
+
+Get and Set stuff
+
+=cut
+
+
 { # get/set routines
   sub set_verb {
     my ($self, $var) = @_;
@@ -123,6 +169,11 @@ sub new {
     return $self->{optfunc};
   }
 
+  sub get_optfunc {
+    my $self = shift;
+    return $self->{optfunc};
+  }
+
   sub set_constraint {
     my ($self, $var) = @_;
     croak "overwriting old constraint" if $self->{constraint};
@@ -135,17 +186,25 @@ sub new {
     return $self->{constraint};
   }
 
-  sub add_avoid {
+  sub set_avoid {
     my $self = shift;
-    push @{$self->{avoid}}, @_;
+    $self->{avoid} = [@_];
+    return $self->{avoid};
+  }
+
+  sub get_avoid {
+    my $self = shift;
     return $self->{avoid};
   }
 
   sub add_structures {
     my $self = shift;
     push @{$self->{structures}}, @_;
-    #warn @{$self->{structures}}."structures specified" 
-    #if @{$self->{structures}} > 2;
+    return $self->{structures};
+  }
+
+  sub get_structures {
+    my $self = shift;
     return $self->{structures};
   }
 
@@ -164,13 +223,73 @@ sub new {
   }
 }
 
+=head2 make_dependency_graph()
+
+TODO: make_dependency_graph(@structures). If @structures is empty, it will make
+the dependency graph from all structures added with the add_strucutres()
+routine. In some cases the user may not want all the structures in the cost
+function to be part of the dependency graph, therfore @structures can be 
+specified to select for those that shall define the dependencies.
+
+TODO: rewrite and use RNA::Utils::make_pair_table();
+
+=cut
+
+sub make_dependency_graph {
+  my $self = shift;
+  my @seen;
+
+  my @fist = make_pair_table($self->{structures}[0]);
+  my @sest = make_pair_table($self->{structures}[1]);
+
+  for my $i (0..$#fist) {
+    my @cycle1 = ();
+    next if ($seen[$i]);
+    push @cycle1, $i;
+    $seen[$i]=1;
+    my $j = $fist[$i];
+    while ($j>=0 && !$seen[$j]) {
+      push @cycle1, $j;
+      $seen[$j] = 1;
+      $j = ($#cycle1 % 2) ? $sest[$j] : $fist[$j];
+    }
+    $j = $sest[$i];
+    my @cycle2 = ();
+    while ($j>=0 && !$seen[$j]) {
+      unshift @cycle2, $j;
+      $seen[$j] = 1;
+      $j = ($#cycle2 % 2) ? $sest[$j] : $fist[$j];
+    }
+    # duplicate first element if closed cycle
+    unshift @cycle2, $j if ($j!=-1);
+    push @{$self->{clist}}, [@cycle2, @cycle1];
+  }
+
+  ## foreach position store its path in @plist
+  #foreach my $pp (@{$self->{clist}}) {
+  #  my @path = @$pp;
+  #  for my $pos (0..$#path) {
+  #    $self->{plist}->[$path[$pos]] = [$pp, $pos];
+  #  }
+  #}
+
+  return $self->{clist};
+}
+
+=head2 explore_sequence_space()
+
+This function needs to be called to initialize the subsequent sequence design. It reads
+the previously computed dependency graph to (i) update the sequence constraint, (ii)
+caclulate the total number of sequences able to fulfill sequence and structure 
+constraints, (iii) set a stop-condition for sequence design dependent on the number
+of possible mutation-moves.
+
+TODO: The routine does not include sequence constraints for step (ii) and (iii) and 
+therefore overestimates the sequence space. Fixing this should greatly reduce the runtime.
+
+=cut
+
 sub explore_sequence_space {
-  # (1) Updates to constraint using the depencency graph
-  # (2) calculates the sequence space
-  # (3) sets border
-  # TODO
-  # (4) remove strictly constrained bases from cycle-list;
-  # (5) calculate the correct sequence space!
   my $self = shift;
   my $verb = 0;
 
@@ -235,6 +354,7 @@ sub explore_sequence_space {
   $self->{nos}=$nos;
   printf STDERR "Total number of sequences w.o. constraints: %g; Border: %g\n",
   $self->{nos}, $self->{border} if $verb;
+  #TODO: return (constraint, border, nos);
 }
 
 sub rewrite_neighbor {
@@ -257,6 +377,15 @@ sub rewrite_neighbor {
     return 1;
   }
 }
+
+=head2 find_a_sequence()
+
+Uses the depencency graph and the sequence constraint to make a random sequence. 
+
+TODO: The random-sequence should already include the information of get_probs().
+
+=cut
+
 
 sub find_a_sequence {
   # make random sequence or randomly mutate sequence
@@ -283,6 +412,80 @@ sub find_a_sequence {
   }
   return $seq;
 }
+
+=head2 optimize_sequence(sequence, maximum_number_of_mutations)
+
+The standard optimization function. Whenever a sequence mutation results in a
+better score, it replaces the current solution. In case there are too many 
+useless mutations, (see explore_sequence_space()), the current sequence is returned.
+
+=cut
+
+sub optimize_sequence {
+  my $self  = shift;
+  my $refseq= shift;
+  my $m     = shift;
+
+  my $verb    = $self->{verb};
+  my $border  = $self->{border};
+  my $refcost = $self->eval_sequence($refseq);
+  my ($mutseq,$newcost);
+
+  my $reject = 0;
+  my %seen = ();
+  for my $d (1..$m) {
+    $mutseq = $self->mutate_seq($refseq);
+    if (!exists $seen{$mutseq}) {
+      $seen{$mutseq}=1;
+      $newcost = $self->eval_sequence($mutseq);
+      if ($newcost < $refcost) {
+        $refseq = $mutseq;
+        $refcost= $newcost;
+        $reject = 0;
+        printf STDERR "%4d %s %6.3f\n", $d, $mutseq, $newcost if $verb;
+      } 
+    }
+    else {
+      $seen{$mutseq}++;
+      last if (++$reject >= $border);
+    }
+  }
+  return $refseq;
+}
+
+=head2 mutate_seq()
+
+Choose a random cycle, mutate it using make_pathseq of the sequence constraint.
+
+TODO: that could result in the same sequence as before, which is inefficient!
+
+=cut
+
+sub mutate_seq {
+  my $self  = shift;
+  my $seq   = shift;
+
+  my $con   = $self->{constraint};
+  my @clist = @{$self->{clist}};
+
+  my ($path, @pseq);
+
+  $path = $clist[int rand @clist];
+  my $l = @$path;
+  do{--$l; $l=-$l} if ($$path[0] eq $$path[-1] && (@$path>1));
+  push @pseq, substr($con, $_, 1) foreach @$path;
+
+  @pseq = $self->make_pathseq($l, @pseq);
+
+  substr($seq, $$path[$_], 1, $pseq[$_]) for (0 .. $#pseq);
+  return $seq;
+}
+
+=head2 make_pathseq()
+
+Takes an Array of IUPACK code and randomly rewrites it into a valid array of Nucleotides
+
+=cut
 
 sub make_pathseq {
   my $self = shift;
@@ -314,6 +517,12 @@ sub make_pathseq {
   return @path;
 }
 
+=head2 eval_sequence()
+
+Evaluate a given sequence according to your cost function.
+
+=cut
+
 sub eval_sequence {
   my $self = shift;
   my $seq  = shift;
@@ -324,7 +533,7 @@ sub eval_sequence {
 
   my %results;
   $RNA::fold_constrained=1;
-  foreach my $func (qw/eos eos_circ pfc pfc_circ gfe gfe_circ/) {
+  foreach my $func (qw/eos eos_circ pfc pfc_circ gfe gfe_circ prob prob_circ/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       print STDERR "next: $&\n" if $verb > 1;
       $results{$&} = eval "\$self->$func(\$seq, $1)" unless exists $results{$&};
@@ -372,6 +581,38 @@ sub base_prob {
     }
   }
   return $cost;
+}
+
+sub prob {
+  my ($self, $seq, $i, $j, $t) = @_;
+  $t = 37 unless defined $t;
+  $RNA::temperature=$t;
+
+  my $kT=0.6163207755;
+  my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
+  my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
+  my $tmp;
+
+  $tmp=$s_i; my $dGi = RNA::pf_fold($seq, $tmp);
+  $tmp=$s_j; my $dGj = RNA::pf_fold($seq, $tmp);
+
+  return exp(($dGj-$dGi)/$kT);
+}
+
+sub prob_circ {
+  my ($self, $seq, $i, $j, $t) = @_;
+  $t = 37 unless defined $t;
+  $RNA::temperature=$t;
+
+  my $kT=0.6163207755;
+  my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
+  my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
+  my $tmp;
+
+  $tmp=$s_i; my $dGi = RNA::pf_circ_fold($seq, $tmp);
+  $tmp=$s_j; my $dGj = RNA::pf_circ_fold($seq, $tmp);
+
+  return exp(($dGj-$dGi)/$kT);
 }
 
 sub eos {
@@ -428,101 +669,6 @@ sub gfe_circ {
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   return RNA::pf_circ_fold($seq, undef);
-}
-
-############ READY TO GO #############
-
-sub optimize_sequence {
-  my $self  = shift;
-  my $refseq= shift;
-  my $m     = shift;
-
-  my $verb    = $self->{verb};
-  my $border  = $self->{border};
-  my $refcost = $self->eval_sequence($refseq);
-  my ($mutseq,$newcost);
-
-  my $reject = 0;
-  my %seen = ();
-  for my $d (1..$m) {
-    $mutseq = $self->mutate_seq($refseq);
-    if (!exists $seen{$mutseq}) {
-      $seen{$mutseq}=1;
-      $newcost = $self->eval_sequence($mutseq);
-      if ($newcost < $refcost) {
-        $refseq = $mutseq;
-        $refcost= $newcost;
-        $reject = 0;
-        printf STDERR "%4d %s %6.3f\n", $d, $mutseq, $newcost if $verb;
-      } 
-    }
-    else {
-      $seen{$mutseq}++;
-      last if (++$reject >= $border);
-    }
-  }
-  return $refseq;
-}
-
-sub mutate_seq {
-  my $self  = shift;
-  my $seq   = shift;
-
-  my $con   = $self->{constraint};
-  my @clist = @{$self->{clist}};
-
-  my ($path, @pseq);
-
-  $path = $clist[int rand @clist];
-  my $l = @$path;
-  do{--$l; $l=-$l} if ($$path[0] eq $$path[-1] && (@$path>1));
-  push @pseq, substr($con, $_, 1) foreach @$path;
-
-  @pseq = $self->make_pathseq($l, @pseq);
-
-  substr($seq, $$path[$_], 1, $pseq[$_]) for (0 .. $#pseq);
-  return $seq;
-}
-
-sub make_dependency_graph {
-  my $self = shift;
-  my @seen;
-
-  my @fist = make_pair_table($self->{structures}[0]);
-  my @sest = make_pair_table($self->{structures}[1]);
-
-  for my $i (0..$#fist) {
-    my @cycle1 = ();
-    next if ($seen[$i]);
-    push @cycle1, $i;
-    $seen[$i]=1;
-    my $j = $fist[$i];
-    while ($j>=0 && !$seen[$j]) {
-      push @cycle1, $j;
-      $seen[$j] = 1;
-      $j = ($#cycle1 % 2) ? $sest[$j] : $fist[$j];
-    }
-    $j = $sest[$i];
-    my @cycle2 = ();
-    while ($j>=0 && !$seen[$j]) {
-      unshift @cycle2, $j;
-      $seen[$j] = 1;
-      $j = ($#cycle2 % 2) ? $sest[$j] : $fist[$j];
-    }
-    # duplicate first element if closed cycle
-    unshift @cycle2, $j if ($j!=-1);
-    push @{$self->{clist}}, [@cycle2, @cycle1];
-  }
-
-  ## foreach position store its path in @plist
-  #foreach my $pp (@{$self->{clist}}) {
-  #  my @path = @$pp;
-  #  for my $pos (0..$#path) {
-  #    $self->{plist}->[$path[$pos]] = [$pp, $pos];
-  #  }
-  #}
-
-  return $self->{clist};
 }
 
 sub make_pair_table {
