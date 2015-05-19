@@ -28,6 +28,16 @@ subtest 'RNA::Design -- Internal Functions' => sub {
   my ($nuc1, $nuc2) = ('R', 'N');
   is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 1, 'rewrite_neighbor (change)');
   is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 0, 'rewrite_neighbor (constant)');
+
+  srand(1); 
+  #srand(2);
+  my @path = ('N','N','C','N','N','N');
+  my $cycle=1;
+  @path = $ViennaDesign->update_constraint($cycle, @path);
+  print "@path\n";
+
+  @path = $ViennaDesign->make_pathseq($cycle, @path);
+  print "@path\n";
 }
 
 # TODO: 
@@ -38,7 +48,6 @@ subtest 'RNA::Design -- Internal Functions' => sub {
 # $cost = eval_sequence($seq, $optfunc);
 #
 # mutate_seq()
-# pake_pathseq()
 # 
 # base_avoid()
 # base_prob()

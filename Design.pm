@@ -299,14 +299,17 @@ sub explore_sequence_space {
   my ($border, $max_len, $nos) = (0,0,1);
   foreach my $path (@clist) {
     my @pseq=();
-    my $l = @$path;
     my $cycle=0;
 
     # Identify cycles
-    do{--$l; $cycle=1} if ($path->[0] eq $path->[-1] && (@$path>1));
+    $cycle=1 if ($path->[0] eq $path->[-1] && (@$path>1));
+
+    # Translate path into nucleotide constraints
+    my $l = ($cycle) ? $#$path-1 : $#$path;
+    push @pseq, substr($con, $$path[$_], 1) for (0 .. $l);
 
     # Statistics
-    $max_len = $l if $l > $max_len;
+    $max_len = $l if ++$l > $max_len;
     $border += ($cycle) ? 
     2*($self->get_fibo($l+1)+$self->get_fibo($l-1)) : 
     2*($self->get_fibo($l+1)+$self->get_fibo($l));
@@ -314,38 +317,10 @@ sub explore_sequence_space {
     2*($self->get_fibo($l+1)+$self->get_fibo($l-1)) : 
     2*($self->get_fibo($l+1)+$self->get_fibo($l));
 
-    # Translate path into nucleotide constraints
-    push @pseq, substr($con, $_, 1) foreach @$path;
-
     print "@$path => @pseq\n" if $l>1 && 0;
 
     # Update Constraint
-    my $jailbreak=0;
-    while (1) {
-      my $mutated = 0;
-      my $i;
-      if ($cycle) {
-        for $i (-$#pseq .. $#pseq-1) {
-          next if $pseq[$i] eq 'N';
-          $mutated = 1 if $self->rewrite_neighbor($pseq[$i], \$pseq[$i+1]);
-        }
-        for $i (reverse(-$#pseq .. $#pseq)) {
-          next if $pseq[$i] eq 'N';
-          $mutated = 1 if $self->rewrite_neighbor($pseq[$i], \$pseq[$i-1]);
-        }
-      } else {
-        for $i (0 .. $#pseq-1) {
-          next if $pseq[$i] eq 'N';
-          $mutated = 1 if $self->rewrite_neighbor($pseq[$i], \$pseq[$i+1]);
-        }
-        for $i (reverse(1 .. $#pseq)) {
-          next if $pseq[$i] eq 'N';
-          $mutated = 1 if $self->rewrite_neighbor($pseq[$i], \$pseq[$i-1]);
-        }
-      }
-      last unless $mutated;
-      die "escaping constraint updates" if $jailbreak++ > 100;
-    }
+    @pseq = $self->update_constraint($cycle, @pseq);
 
     substr($con, $path->[$_], 1, $pseq[$_]) for (0 .. $#pseq);
   }
@@ -355,6 +330,42 @@ sub explore_sequence_space {
   printf STDERR "Total number of sequences w.o. constraints: %g; Border: %g\n",
   $self->{nos}, $self->{border} if $verb;
   #TODO: return (constraint, border, nos);
+}
+
+sub update_constraint {
+  my $self = shift;
+  my $cycle = shift;
+  my @pseq  = @_;
+
+  die "cycle of uneven length!" if $cycle && @pseq % 2;
+
+  my $jailbreak=0;
+  while (1) {
+    my $mutated = 0;
+    my $i;
+    if ($cycle) {
+      for $i (-$#pseq .. $#pseq-1) {
+        next if $pseq[$i] eq 'N';
+        $mutated = 1 if $self->rewrite_neighbor($pseq[$i], \$pseq[$i+1]);
+      }
+      for $i (reverse(-$#pseq .. $#pseq)) {
+        next if $pseq[$i] eq 'N';
+        $mutated = 1 if $self->rewrite_neighbor($pseq[$i], \$pseq[$i-1]);
+      }
+    } else {
+      for $i (0 .. $#pseq-1) {
+        next if $pseq[$i] eq 'N';
+        $mutated = 1 if $self->rewrite_neighbor($pseq[$i], \$pseq[$i+1]);
+      }
+      for $i (reverse(1 .. $#pseq)) {
+        next if $pseq[$i] eq 'N';
+        $mutated = 1 if $self->rewrite_neighbor($pseq[$i], \$pseq[$i-1]);
+      }
+    }
+    last unless $mutated;
+    die "escaping constraint updates" if $jailbreak++ > 100;
+  }
+  return @pseq;
 }
 
 sub rewrite_neighbor {
@@ -398,15 +409,15 @@ sub find_a_sequence {
 
   foreach my $path (@clist) {
     my @pseq = ();
-    my $l = @$path;
+    my $cycle=0;
 
-    # Identify cycles
-    do{--$l; $l=-$l} if ($$path[0] eq $$path[-1] && (@$path>1));
+    $cycle = 1 if ($$path[0] eq $$path[-1] && (@$path>1));
 
     # Translate path into nucleotide constraints
-    push @pseq, substr($con, $_, 1) foreach @$path;
+    my $l = ($cycle) ? $#$path-1 : $#$path;
+    push @pseq, substr($con, $$path[$_], 1) for (0 .. $l);
 
-    @pseq = $self->make_pathseq($l, @pseq);
+    @pseq = $self->make_pathseq($cycle, @pseq);
 
     substr($seq, $$path[$_], 1, $pseq[$_]) for (0 .. $#pseq);
   }
@@ -469,13 +480,16 @@ sub mutate_seq {
   my @clist = @{$self->{clist}};
 
   my ($path, @pseq);
+  my $cycle = 0;
 
   $path = $clist[int rand @clist];
-  my $l = @$path;
-  do{--$l; $l=-$l} if ($$path[0] eq $$path[-1] && (@$path>1));
-  push @pseq, substr($con, $_, 1) foreach @$path;
 
-  @pseq = $self->make_pathseq($l, @pseq);
+  $cycle = 1 if ($$path[0] eq $$path[-1] && (@$path>1));
+
+  my $l = ($cycle) ? $#$path-1 : $#$path;
+  push @pseq, substr($con, $$path[$_], 1) for (0 .. $l);
+
+  @pseq = $self->make_pathseq($cycle, @pseq);
 
   substr($seq, $$path[$_], 1, $pseq[$_]) for (0 .. $#pseq);
   return $seq;
@@ -489,32 +503,27 @@ Takes an Array of IUPACK code and randomly rewrites it into a valid array of Nuc
 
 sub make_pathseq {
   my $self = shift;
-  my $len  = shift;
-  my @pseq = @_; # ('N', 'N', 'R')
+  my $cycle= shift;
+  my @pseq = @_; 
+
   my @path;
 
   my %iupack   = %{$self->{iupack}};
 
-  my $cycle=0;
-  if ($len < 0) {
-    $len = -$len;
-    $cycle=1;
-  }
-
   for (my $i=0; $i<=$#pseq; ++$i) {
     my $c = $pseq[$i];
     my @i = (split '', $iupack{$c});
-    $path[$i] = $i[int rand @i];
+    $pseq[$i] = $i[int rand @i];
 
     if ($i==0 && $cycle) {
-      my ($a, $j) = ($path[$i], -1);
-      do { $a=$pseq[$j--] } while $self->rewrite_neighbor($a, \$pseq[$j]);
+      my ($a, $j) = ($pseq[$i], -1);
+      $a=$pseq[$j--] while $self->rewrite_neighbor($a, \$pseq[$j]);
     }
 
-    $self->rewrite_neighbor($path[$i], \$pseq[$i+1]) if $i < $#pseq;
+    $self->rewrite_neighbor($pseq[$i], \$pseq[$i+1]) if $i < $#pseq;
   }
 
-  return @path;
+  return @pseq;
 }
 
 =head2 eval_sequence()
