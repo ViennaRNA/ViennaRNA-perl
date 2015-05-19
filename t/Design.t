@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 5;
+use Test::More tests => 6;
 
 # ****************************************** #
 # ~~~~~~~~~~ ALL INTERNAL MODULES ~~~~~~~~~~ #
@@ -13,26 +13,22 @@ BEGIN { use_ok('RNA::Design'); }
 BEGIN { use_ok('RNA::Utils'); }
 
 my $ViennaDesign = RNA::Design->new();
-isa_ok($ViennaDesign, 'RNA::Design', 'object initialized');
+isa_ok($ViennaDesign, 'RNA::Design', 'Object initialized');
 
 # Check default Options
-subtest 'Done with Default Options' => sub {
+subtest 'RNA::Design -- Default Options' => sub {
   plan tests => 3;
   is ($ViennaDesign->get_verb, 0, 'get_verb()');
   is ($ViennaDesign->get_constraint, '', 'get_constraint()');
   is (ref $ViennaDesign->get_structures, "ARRAY", 'get_structures()');
 };
 
-
-# ******************************************************** #
-# ~~~~~~~~~~ Chemistry::SundialsWrapper::Solver ~~~~~~~~~~ #
-# ........................................................ #
-
-#subtest 'RNA::Design (Private Functions)' => sub {
-#  plan tests => 4;
-#   TRUE  == rewrite_neighbor('R', \'N');
-#   FALSE == rewrite_neighbor('R', \'Y');
-#}
+subtest 'RNA::Design -- Internal Functions' => sub {
+  plan tests => 2;
+  my ($nuc1, $nuc2) = ('R', 'N');
+  is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 1, 'rewrite_neighbor (change)');
+  is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 0, 'rewrite_neighbor (constant)');
+}
 
 # TODO: 
 # @clist = make_dependency_graph(@s);
