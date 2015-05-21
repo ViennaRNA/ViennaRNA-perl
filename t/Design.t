@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 6;
+use Test::More tests => 11;
 
 # ****************************************** #
 # ~~~~~~~~~~ ALL INTERNAL MODULES ~~~~~~~~~~ #
@@ -12,7 +12,7 @@ BEGIN { use_ok('RNA'); }
 BEGIN { use_ok('RNA::Design'); }
 BEGIN { use_ok('RNA::Utils'); }
 
-my $ViennaDesign = RNA::Design->new();
+my $ViennaDesign = RNA::Design->new(verb=>1);
 isa_ok($ViennaDesign, 'RNA::Design', 'Object initialized');
 
 # Check default Options
@@ -24,31 +24,85 @@ subtest 'RNA::Design -- Default Options' => sub {
 };
 
 subtest 'RNA::Design -- Internal Functions' => sub {
-  plan tests => 2;
+  plan tests => 13;
   my ($nuc1, $nuc2) = ('R', 'N');
-  is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 1, 'rewrite_neighbor (change)');
-  is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 0, 'rewrite_neighbor (constant)');
+  is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 1, 'rewrite_neighbor() - change');
+  is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 0, 'rewrite_neighbor() - constant');
 
-  srand(1); 
-  #srand(2);
-  my @path = ('N','N','C','N','N','N');
-  my $cycle=1;
-  @path = $ViennaDesign->update_constraint($cycle, @path);
-  print "@path\n";
+  my @path = ('N','N','N','N','C','N','N','N');
+  my @outp = ('Y','R','Y','G','C','G','Y','R');
+  my $cycle;
+  is_deeply ([$ViennaDesign->update_constraint($cycle = 1, @path)], \@outp, 'update_constraint() - cycle');
+  is_deeply ([$ViennaDesign->update_constraint($cycle = 0, @path)], \@outp, 'update_constraint() - path');
 
-  @path = $ViennaDesign->make_pathseq($cycle, @path);
-  print "@path\n";
-}
+  # TODO: test these:
+  is ($ViennaDesign->enumerate_pathways($cycle = 0, @path),
+    $ViennaDesign->enumerate_pathways($cycle = 0, @outp), 'enumerate_pathways() - no overcounting');
+
+  is ($ViennaDesign->enumerate_pathways($cycle = 0, ('A','N','N','N')), 3, 'enum_pathways() - path');
+  is ($ViennaDesign->enumerate_pathways($cycle = 1, ('A','N','N','N')), 2, 'enum_pathways() - cycle');
+
+  @path = @outp;
+
+  @outp = ('C','G','C','G','C','G','U','A');
+  srand(0); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
+  @outp = ('C','G','C','G','C','G','U','G');
+  srand(0); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
+
+  @outp = ('C','G','U','G','C','G','C','G');
+  srand(1); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
+  srand(1); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
+
+  @outp = ('U','A','U','G','C','G','U','G');
+  srand(2); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
+  srand(2); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
+};
+
+
+my $plist;
+my @structs;
+
+@structs = ( '......' );
+$plist = [[0],[1],[2],[3],[4],[5]];
+is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- open chain');
+
+@structs = ( '.(...)','.(...)');
+$plist = [[0],[1,5],[2],[3],[4]];
+is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- one bpair');
+
+@structs = (
+  #0....,....1....,....2....,....3',
+  '.(....)(((...)))',
+  '.(...).((....)).',
+  '(..............)',
+);
+
+$plist = [[9,13,8,14,7,15,0],[5,1,6],[2],[3],[4],[10],[11],[12]];
+is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- two pathways');
+
+@structs = (
+  #0....,....1....,....2....,....3',
+  '.(...)((...)).(...)',
+  '.(...((.(...)))...)',
+  #NNNNNNNNNNNNNNNNNNN',
+);
+
+$plist = [[0],[18,1,5,14,18],[2],[3],[4],[13,6,12,8],[7,11],[9],[10],[15],[16],[17]];
+is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- cycles,pathways,basepairs');
+
+$ViennaDesign->set_constraint('GNNNNNNNNNNNNANNNUA');
+my @explore = ('GUNNNRUNYNNNRAUNNUA', 39, 589824);
+is_deeply([$ViennaDesign->explore_sequence_space()], \@explore, 'explore_sequence_space()');
+
+
+print "done testing\n";
 
 # TODO: 
-# @clist = make_dependency_graph(@s);
-# ($constraint, $border, $nos) = explore_sequence_space(@clist, $constraint);
 # $sequence = find_a_sequence(@clist, $constraint);
 # $optseq = optimize_sequence($refseq, $m);
 # $cost = eval_sequence($seq, $optfunc);
 #
 # mutate_seq()
-# 
 # base_avoid()
 # base_prob()
 # prob()
@@ -59,7 +113,4 @@ subtest 'RNA::Design -- Internal Functions' => sub {
 # pfc_circ()
 # gfe()
 # gfe_circ()
-#
-
-
 

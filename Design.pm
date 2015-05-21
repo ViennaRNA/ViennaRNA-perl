@@ -57,7 +57,7 @@ sub new {
     fibo  => [0,1],
     border=> 0,
     nos   => undef,
-    clist => [],
+    plist => [],
     prob  => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
     avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
     verb  => 0,
@@ -65,6 +65,21 @@ sub new {
     structures  => [],
     constraint  => '',
     optfunc     => 'eos(1)+eos(2) - 2*gfe() + 0.3*(eos(1)-eos(2)+0.00)**2',
+
+    base => ({
+        'A' => 0,
+        'C' => 1,
+        'G' => 2,
+        'U' => 3,
+      }),
+
+    pair => [
+      #A C G U
+      [0,0,0,1], # A 
+      [0,0,1,0], # C
+      [0,1,0,1], # G
+      [1,0,1,0]  # U
+    ],
 
     iupack => ({
       'A' => 'A',
@@ -139,6 +154,7 @@ sub new {
     ],
   };
 
+
   bless $self, $class;
   return $self;
 }
@@ -176,7 +192,7 @@ Get and Set stuff
 
   sub set_constraint {
     my ($self, $var) = @_;
-    croak "overwriting old constraint" if $self->{constraint};
+    carp "overwriting old constraint" if $self->{constraint};
     $self->{constraint} = $var;
     return $self->{constraint};
   }
@@ -223,57 +239,91 @@ Get and Set stuff
   }
 }
 
-=head2 make_dependency_graph()
+=head2 find_dependency_paths(@s)
 
-TODO: make_dependency_graph(@structures). If @structures is empty, it will make
-the dependency graph from all structures added with the add_strucutres()
-routine. In some cases the user may not want all the structures in the cost
-function to be part of the dependency graph, therfore @structures can be 
-specified to select for those that shall define the dependencies.
-
-TODO: rewrite and use RNA::Utils::make_pair_table();
+If @s is empty, it will make the dependency graph from all structures added
+with the add_structures() routine. In some cases the user may not want all the
+structures in the cost function to be part of the dependency graph, therfore
+@structures can be specified to select for those that shall define the
+dependencies. 
 
 =cut
 
-sub make_dependency_graph {
+sub find_dependency_paths {
   my $self = shift;
-  my @seen;
+  my @structures = @_;
+  my (@pt1, @pt2, @lx1, @lx2, @seen);
 
-  my @fist = make_pair_table($self->{structures}[0]);
-  my @sest = make_pair_table($self->{structures}[1]);
-
-  for my $i (0..$#fist) {
-    my @cycle1 = ();
-    next if ($seen[$i]);
-    push @cycle1, $i;
-    $seen[$i]=1;
-    my $j = $fist[$i];
-    while ($j>=0 && !$seen[$j]) {
-      push @cycle1, $j;
-      $seen[$j] = 1;
-      $j = ($#cycle1 % 2) ? $sest[$j] : $fist[$j];
-    }
-    $j = $sest[$i];
-    my @cycle2 = ();
-    while ($j>=0 && !$seen[$j]) {
-      unshift @cycle2, $j;
-      $seen[$j] = 1;
-      $j = ($#cycle2 % 2) ? $sest[$j] : $fist[$j];
-    }
-    # duplicate first element if closed cycle
-    unshift @cycle2, $j if ($j!=-1);
-    push @{$self->{clist}}, [@cycle2, @cycle1];
+  if ($self->{plist}) {
+    #carp "overwriting old dependency-path!\n";
+    $self->{plist}=[];
   }
 
-  ## foreach position store its path in @plist
-  #foreach my $pp (@{$self->{clist}}) {
-  #  my @path = @$pp;
-  #  for my $pos (0..$#path) {
-  #    $self->{plist}->[$path[$pos]] = [$pp, $pos];
-  #  }
-  #}
+  @structures = @{$self->{structures}} unless @structures;
+  croak "no structure input found" unless @structures;
 
-  return $self->{clist};
+  # Merge all strucutes into two pairtables and complain if not possible!
+  for (my $s=0; $s<@structures; ++$s) {
+    my @pt = @{RNA::Utils::make_pair_table($structures[$s])};
+    if ($s == 0) {
+      @pt1 = @pt;
+      @pt2 = (0) x @pt1;
+    } else {
+      @lx1 = RNA::Utils::make_loop_index_from_pt(@pt1);
+      @lx2 = RNA::Utils::make_loop_index_from_pt(@pt2);
+      for my $i (1..$#pt) {
+        next unless $i < $pt[$i]; # '('
+        my $j = $pt[$i];
+        next if ($pt1[$i]==$j && $pt1[$j]==$i);
+        next if ($pt2[$i]==$j && $pt2[$j]==$i);
+        if ($lx1[$i]==$lx1[$j] && !$pt1[$i] && !$pt[$j]) {
+          $pt1[$i]=$pt[$i];
+          $pt1[$j]=$pt[$j];
+        } elsif ($lx2[$i]==$lx2[$j] && !$pt2[$i] && !$pt2[$j]) {
+          $pt2[$i]=$pt[$i];
+          $pt2[$j]=$pt[$j];
+        } else {
+          carp "ignoring basepair $i - $j from structure ".($s+1)."\n";
+        }
+      }
+    }
+  }
+
+  # ZERO-Based
+  for my $i (1..$#pt1) {
+    next if $seen[$i];
+
+    # initialize path with $i
+    my @path  = ($i-1);
+    $seen[$i] = 1;
+
+    # expand @path to the right (push)
+    my ($pt, $j) = (1, $pt1[$i]);
+    while ($j && !$seen[$j]) {
+      push @path, $j-1;
+      $seen[$j]=1;
+      $j  = ($pt == 1) ? $pt2[$j] : $pt1[$j];
+      $pt = ($pt == 1) ? 2 : 1;
+    }
+
+    # expand @path to the left (unshift)
+    ($pt, $j) = (2, $pt2[$i]);
+    while ($j && !$seen[$j]) {
+      unshift @path, $j-1;
+      $seen[$j]=1;
+      $j  = ($pt == 1) ? $pt2[$j] : $pt1[$j];
+      $pt = ($pt == 1) ? 2 : 1;
+    }
+
+    # duplicate element if we have a cycle 
+    if ($j) {
+      croak "messed up cycle!" unless $j-1 == $path[-1];
+      unshift @path, $j-1 unless @path == 2; # 2 => duplicate basepair
+    }
+
+    push @{$self->{plist}}, [@path];
+  }
+  return $self->{plist};
 }
 
 =head2 explore_sequence_space()
@@ -284,52 +334,63 @@ caclulate the total number of sequences able to fulfill sequence and structure
 constraints, (iii) set a stop-condition for sequence design dependent on the number
 of possible mutation-moves.
 
-TODO: The routine does not include sequence constraints for step (ii) and (iii) and 
-therefore overestimates the sequence space. Fixing this should greatly reduce the runtime.
-
 =cut
 
 sub explore_sequence_space {
   my $self = shift;
   my $verb = 0;
 
-  my @clist=@{$self->{clist}};
+  my @plist=@{$self->{plist}};
   my $con  = $self->{constraint};
 
+  my %iupack   = %{$self->{iupack}};
+
+  croak "need to comupute depencendy pathways first!" unless @plist;
+  croak "need constraint infromation!" unless $con;
+
   my ($border, $max_len, $nos) = (0,0,1);
-  foreach my $path (@clist) {
+  my @slim_plist;
+  foreach my $path (@plist) {
     my @pseq=();
     my $cycle=0;
+    my $num;
 
-    # Identify cycles
-    $cycle=1 if ($path->[0] eq $path->[-1] && (@$path>1));
+    # Let's do the simple thingy separate
+    if (@$path == 1) {
+      # Get constraint
+      $pseq[0] = substr($con, $path->[0], 1);
 
-    # Translate path into nucleotide constraints
-    my $l = ($cycle) ? $#$path-1 : $#$path;
-    push @pseq, substr($con, $$path[$_], 1) for (0 .. $l);
+      # Statistics (bos, border)
+      $num  = length $iupack{$pseq[0]};
+    } else {
+      $cycle=1 if ($path->[0] eq $path->[-1]);
 
-    # Statistics
-    $max_len = $l if ++$l > $max_len;
-    $border += ($cycle) ? 
-    2*($self->get_fibo($l+1)+$self->get_fibo($l-1)) : 
-    2*($self->get_fibo($l+1)+$self->get_fibo($l));
-    $nos    *= ($cycle) ? 
-    2*($self->get_fibo($l+1)+$self->get_fibo($l-1)) : 
-    2*($self->get_fibo($l+1)+$self->get_fibo($l));
+      # Translate path into nucleotide constraints
+      my $l = ($cycle) ? $#$path-1 : $#$path;
+      push @pseq, substr($con, $$path[$_], 1) for (0 .. $l);
 
-    print "@$path => @pseq\n" if $l>1 && 0;
+      # Update Constraint
+      @pseq = $self->update_constraint($cycle, @pseq);
 
-    # Update Constraint
-    @pseq = $self->update_constraint($cycle, @pseq);
+      # Enumerate all possible pathways 
+      $num = $self->enumerate_pathways($cycle, @pseq);
+    }
 
+    if ($num > 1) {
+      push @slim_plist, $path;
+      $border += $num;
+      $nos    *= $num;
+    }
+
+    print "@$path => @pseq | Num: $num\n" if 0;
     substr($con, $path->[$_], 1, $pseq[$_]) for (0 .. $#pseq);
   }
+
+  $self->{plist}=\@slim_plist;
   $self->{constraint}=$con;
   $self->{border}=$border unless $self->{border};
   $self->{nos}=$nos;
-  printf STDERR "Total number of sequences w.o. constraints: %g; Border: %g\n",
-  $self->{nos}, $self->{border} if $verb;
-  #TODO: return (constraint, border, nos);
+  return ($con, $border, $nos);
 }
 
 sub update_constraint {
@@ -368,6 +429,51 @@ sub update_constraint {
   return @pseq;
 }
 
+sub enumerate_pathways {
+  my $self = shift;
+  my $cycle= shift;
+  my @pseq = @_;
+
+  my %iupack = %{$self->{iupack}};
+  my %base   = %{$self->{base}};
+  my @pair   = @{$self->{pair}};
+
+  my @first = map {$_=$base{$_}} (split //, $iupack{$pseq[0]});
+
+  my @leaves=@first;
+  for my $i (1 .. $#pseq) {
+    my @choices = map {$_=$base{$_}} (split //, $iupack{$pseq[$i]});
+    my @next_leaves=();
+
+    # in case we have a cycle
+    if ($i == $#pseq && $cycle) {
+      foreach my $l (@leaves) {
+        foreach my $c (@choices) {
+          if ($self->{pair}->[$l][$c]) {
+            # only add the leave if it also pairs with the first row!
+            foreach my $f (@first) {
+              if ($self->{pair}->[$f][$c]) {
+                push @next_leaves, $c;
+                last;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      foreach my $l (@leaves) {
+        foreach my $c (@choices) {
+          push @next_leaves, $c if $self->{pair}->[$l][$c];
+        }
+      }
+    }
+    #print "@next_leaves\n";
+    @leaves = @next_leaves;
+  }
+
+  return scalar(@leaves);
+}
+ 
 sub rewrite_neighbor {
   my ($self, $c1, $c2) = @_;
   print "$c1 -> $$c2\n" if 0;
@@ -391,23 +497,22 @@ sub rewrite_neighbor {
 
 =head2 find_a_sequence()
 
-Uses the depencency graph and the sequence constraint to make a random sequence. 
+Uses the dependency graph and the sequence constraint to make a random sequence. 
 
 TODO: The random-sequence should already include the information of get_probs().
 
 =cut
 
-
 sub find_a_sequence {
   # make random sequence or randomly mutate sequence
-  # by replacing all @clists by random paths
+  # by replacing all @plists by random paths
   my $self = shift;
 
-  my @clist=@{$self->{clist}};
+  my @plist=@{$self->{plist}};
   my $con  = $self->{constraint};
   my $seq  = $con;
 
-  foreach my $path (@clist) {
+  foreach my $path (@plist) {
     my @pseq = ();
     my $cycle=0;
 
@@ -477,12 +582,12 @@ sub mutate_seq {
   my $seq   = shift;
 
   my $con   = $self->{constraint};
-  my @clist = @{$self->{clist}};
+  my @plist = @{$self->{plist}};
 
   my ($path, @pseq);
   my $cycle = 0;
 
-  $path = $clist[int rand @clist];
+  $path = $plist[int rand @plist];
 
   $cycle = 1 if ($$path[0] eq $$path[-1] && (@$path>1));
 
@@ -678,28 +783,6 @@ sub gfe_circ {
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   return RNA::pf_circ_fold($seq, undef);
-}
-
-sub make_pair_table {
-  my $struc = shift;
-  my ($i, $j, @stack, @ptable);
-
-  $i=0;
-  foreach my $c (split(//,$struc)) {
-    if ($c eq '(') {
-      push @stack, $i;
-    } elsif ($c eq ')') {
-      $j = pop @stack;
-      croak "ERROR [".((caller(0))[3])."] unbalanced brackets!" unless defined $j;
-      $ptable[$i]=$j;
-      $ptable[$j]=$i;
-    } else {
-      $ptable[$i]=-1;
-    }
-    $i++;
-  }
-  croak "ERROR [".((caller(0))[3])."] unbalanced brackets!" if @stack != 0;
-  return @ptable;
 }
 
 1;
