@@ -611,24 +611,51 @@ sub make_pathseq {
   my $cycle= shift;
   my @pseq = @_; 
 
-  my @path;
-
   my %iupack   = %{$self->{iupack}};
+  my %iupack_bin=%{$self->{iupack_bin}};
 
-  for (my $i=0; $i<=$#pseq; ++$i) {
-    my $c = $pseq[$i];
-    my @i = (split '', $iupack{$c});
-    $pseq[$i] = $i[int rand @i];
+  my @path = @pseq;
+  my $jailbreak=0;
+  my ($v,$w)=(0,0);
 
-    if ($i==0 && $cycle) {
-      my ($a, $j) = ($pseq[$i], -1);
-      $a=$pseq[$j--] while $self->rewrite_neighbor($a, \$pseq[$j]);
+  while (@path ~~ @pseq) {
+    for (my $i=0; $i<=$#path; ++$i) {
+      my $c = $path[$i];
+
+      my @i = split '', $iupack{$c};
+      # # Whenever you can choose between a A/G => normalize for A
+      # # Whenever you can choose between a C/U => normalize for C
+      # # => because then the next neighbor will be a U/G if you select A/C
+      my $AG = ($iupack_bin{$c} & 10) == 10;
+      my $CU = ($iupack_bin{$c} & 5) == 5;
+
+      if ($AG && $CU) {
+        push @i, ('A') x $v;
+        push @i, ('C') x $v++;
+      } elsif ($AG) {
+        push @i, ('A') x $v++;
+      } elsif ($CU) {
+        push @i, ('C') x $v++;
+      } else {
+        $v=0;$w=0;
+      }
+
+      $path[$i] = $i[int rand @i];
+
+      if ($i==0 && $cycle) {
+        my ($a, $j) = ($path[$i], -1);
+        $a=$path[$j--] while $self->rewrite_neighbor($a, \$path[$j]);
+      }
+
+      $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
     }
-
-    $self->rewrite_neighbor($pseq[$i], \$pseq[$i+1]) if $i < $#pseq;
+    if (++$jailbreak > 100) {
+      warn "Forcing exit in lazy make_pathseq() implementation\n";
+      last;
+    }
   }
 
-  return @pseq;
+  return @path;
 }
 
 =head2 eval_sequence()
