@@ -2,6 +2,7 @@ package RNA::Design;
 use strict;
 use warnings;
 use RNA;
+use RNA::Utils;
 use Carp;
 
 use Exporter;
