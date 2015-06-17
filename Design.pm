@@ -445,6 +445,7 @@ sub update_constraint {
 
 For a given constrained depencendy path, calculate the number of sequences
 fulfilling that constraint
+TODO : fill solution space
 
 =cut
 
@@ -456,8 +457,11 @@ sub enumerate_pathways {
   my %iupack = %{$self->{iupack}};
   my %base   = %{$self->{base}};
   my @pair   = @{$self->{pair}};
-  
-  # my $space  = %{$self->{solution_space}};
+  my $solutions = %{$self->{solution_space}};
+
+  my $pstr = join '', $pseq;
+  return scalar(@{$solutions{$pstr}}) if exists $solutions{$pstr};
+  # return fibro(length $pstr) if you have only N's
 
   my @first = map {$_=$base{$_}} (split //, $iupack{$pseq[0]});
 
@@ -645,52 +649,43 @@ sub make_pathseq {
   my %iupack_bin=%{$self->{iupack_bin}};
 
   my @path = @pseq;
-  my $jailbreak=0;
+  my $pstr = join '', @pseq;
   my ($v,$w)=(0,0);
 
-  # if path only 'N' => do switch method
-  # if path length 1 => return random nuc
-  # if { exists solution_space{path}, return rand in list solutions
-  # else {
-  #  generate_solutions onthefly
-  # }
-
+  my $jailbreak=0;
+  # This loop destroyes detailed balance!
   while (@path ~~ @pseq) {
-    for (my $i=0; $i<=$#path; ++$i) {
-      my $c = $path[$i];
+    if (length $path == 1) {
+      # if path length 1 => return random iupack
+      my @i = split '', $iupack{$path};
+      $pseq[0] = $i[int rand @i];
+    } elsif (exists $solutions{$path}) {
+      # if paths hardcoded => return string 
+      my @i = @{$solutions{$path}};
+      @pseq = split '', $i[int rand @i];
+    } elsif (grep {$_ ne 'N'} @pseq) {
+      # damn, now we have to compute again ...
 
-      my @i = split '', $iupack{$c};
-      # # Whenever you can choose between a A/G => normalize for A
-      # # Whenever you can choose between a C/U => normalize for C
-      # # => because then the next neighbor will be a U/G if you select A/C
-      my $AG = ($iupack_bin{$c} & 10) == 10;
-      my $CU = ($iupack_bin{$c} & 5) == 5;
-
-      if ($AG && $CU) {
-        push @i, ('A') x $v;
-        push @i, ('C') x $v++;
-      } elsif ($AG) {
-        push @i, ('A') x $v++;
-      } elsif ($CU) {
-        push @i, ('C') x $v++;
-      } else {
-        $v=0;$w=0;
-      }
-
-      $path[$i] = $i[int rand @i];
-
-      if ($i==0 && $cycle) {
-        my ($a, $j) = ($path[$i], -1);
-        $a=$path[$j--] while $self->rewrite_neighbor($a, \$path[$j]);
-      }
-
-      $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
+    } else { # its a path with all N's
+      # do the fibronacci stuff
     }
-    if (++$jailbreak > 100) {
-      warn "Forcing exit in lazy make_pathseq() implementation\n";
-      last;
-    }
+    last if ++$jailbreak > 100;
   }
+
+  # old version for greedy shuffling
+  # for (my $i=0; $i<=$#path; ++$i) {
+  #   my $c = $path[$i];
+  #   my @i = split '', $iupack{$c};
+
+  #   $path[$i] = $i[int rand @i];
+
+  #   if ($i==0 && $cycle) {
+  #     my ($a, $j) = ($path[$i], -1);
+  #     $a=$path[$j--] while $self->rewrite_neighbor($a, \$path[$j]);
+  #   }
+
+  #   $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
+  # }
 
   return @path;
 }
