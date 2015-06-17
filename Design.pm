@@ -4,6 +4,7 @@ use warnings;
 use RNA;
 use RNA::Utils;
 use Carp;
+use Data::Dumper;
 
 use Exporter;
 
@@ -460,13 +461,18 @@ sub enumerate_pathways {
   my %iupack = %{$self->{iupack}};
   my %base   = %{$self->{base}};
   my @pair   = @{$self->{pair}};
-  my $solutions = %{$self->{solution_space}};
+  my %solutions = %{$self->{solution_space}};
 
-  my $pstr = join '', $pseq;
+  my $pstr = join '', @pseq;
   return scalar(@{$solutions{$pstr}}) if exists $solutions{$pstr};
   # return fibro(length $pstr) if you have only N's
+  
+  my @pathseqs = ();
 
   my @first = map {$_=$base{$_}} (split //, $iupack{$pseq[0]});
+
+  push @pathseqs, [$_] foreach @first;
+  #print Dumper (\@pathseqs);
 
   my @leaves=@first;
   for my $i (1 .. $#pseq) {
@@ -650,46 +656,43 @@ sub make_pathseq {
 
   my %iupack   = %{$self->{iupack}};
   my %iupack_bin=%{$self->{iupack_bin}};
+  my %solutions =%{$self->{solution_space}};
 
   my @path = @pseq;
   my $pstr = join '', @pseq;
   my ($v,$w)=(0,0);
 
-  my $jailbreak=0;
-  # This loop destroyes detailed balance!
-  while (@path ~~ @pseq) {
-    if (length $path == 1) {
-      # if path length 1 => return random iupack
-      my @i = split '', $iupack{$path};
-      $pseq[0] = $i[int rand @i];
-    } elsif (exists $solutions{$path}) {
-      # if paths hardcoded => return string 
-      my @i = @{$solutions{$path}};
-      @pseq = split '', $i[int rand @i];
-    } elsif (grep {$_ ne 'N'} @pseq) {
-      # damn, now we have to compute again ...
+  if (length $pstr == 1) {
+    # if path length 1 => return random iupack
+    my @i = split '', $iupack{$pstr};
+    $path[0] = $i[int rand @i];
+  } elsif (exists $solutions{$pstr}) {
+    # if paths hardcoded => return string 
+    my @i = @{$solutions{$pstr}};
+    @path = split '', $i[int rand @i];
+  } 
+  #elsif (grep {$_ ne 'N'} @pseq) {
+  #  # damn, now we have to compute again ...
+  #} 
+  else { # its a path with all N's
+    # do the fibronacci stuff
 
-    } else { # its a path with all N's
-      # do the fibronacci stuff
+    # old version for greedy shuffling
+    for (my $i=0; $i<=$#path; ++$i) {
+      my $c = $path[$i];
+      my @i = split '', $iupack{$c};
+
+      $path[$i] = $i[int rand @i];
+
+      if ($i==0 && $cycle) {
+        my ($a, $j) = ($path[$i], -1);
+        $a=$path[$j--] while $self->rewrite_neighbor($a, \$path[$j]);
+      }
+
+      $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
     }
-    last if ++$jailbreak > 100;
+
   }
-
-  # old version for greedy shuffling
-  # for (my $i=0; $i<=$#path; ++$i) {
-  #   my $c = $path[$i];
-  #   my @i = split '', $iupack{$c};
-
-  #   $path[$i] = $i[int rand @i];
-
-  #   if ($i==0 && $cycle) {
-  #     my ($a, $j) = ($path[$i], -1);
-  #     $a=$path[$j--] while $self->rewrite_neighbor($a, \$path[$j]);
-  #   }
-
-  #   $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
-  # }
-
   return @path;
 }
 
