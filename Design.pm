@@ -656,6 +656,7 @@ sub make_pathseq {
 
   my %iupack   = %{$self->{iupack}};
   my %iupack_bin=%{$self->{iupack_bin}};
+<<<<<<< HEAD
   my %solutions =%{$self->{solution_space}};
 
   my @path = @pseq;
@@ -693,6 +694,48 @@ sub make_pathseq {
     }
 
   }
+=======
+
+  my @path = @pseq;
+  my $pstr = join '', @pseq;
+  my ($v,$w)=(0,0);
+
+  my $jailbreak=0;
+  # This loop destroyes detailed balance!
+  while (@path ~~ @pseq) {
+    if (length $path == 1) {
+      # if path length 1 => return random iupack
+      my @i = split '', $iupack{$path};
+      $pseq[0] = $i[int rand @i];
+    } elsif (exists $solutions{$path}) {
+      # if paths hardcoded => return string 
+      my @i = @{$solutions{$path}};
+      @pseq = split '', $i[int rand @i];
+    } elsif (grep {$_ ne 'N'} @pseq) {
+      # damn, now we have to compute again ...
+
+    } else { # its a path with all N's
+      # do the fibronacci stuff
+    }
+    last if ++$jailbreak > 100;
+  }
+
+  # old version for greedy shuffling
+  # for (my $i=0; $i<=$#path; ++$i) {
+  #   my $c = $path[$i];
+  #   my @i = split '', $iupack{$c};
+
+  #   $path[$i] = $i[int rand @i];
+
+  #   if ($i==0 && $cycle) {
+  #     my ($a, $j) = ($path[$i], -1);
+  #     $a=$path[$j--] while $self->rewrite_neighbor($a, \$path[$j]);
+  #   }
+
+  #   $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
+  # }
+
+>>>>>>> 67802b9d9dddb100248e6b4d429b0bcb52746dc5
   return @path;
 }
 
