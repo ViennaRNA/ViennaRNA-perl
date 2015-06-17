@@ -275,9 +275,11 @@ sub find_dependency_paths {
       for my $i (1..$#pt) {
         next unless $i < $pt[$i]; # '('
         my $j = $pt[$i];
+        # the base-pairs are in there already
         next if ($pt1[$i]==$j && $pt1[$j]==$i);
         next if ($pt2[$i]==$j && $pt2[$j]==$i);
-        if ($lx1[$i]==$lx1[$j] && !$pt1[$i] && !$pt[$j]) {
+        # new base-pairs:
+        if ($lx1[$i]==$lx1[$j] && !$pt1[$i] && !$pt1[$j]) {
           $pt1[$i]=$pt[$i];
           $pt1[$j]=$pt[$j];
         } elsif ($lx2[$i]==$lx2[$j] && !$pt2[$i] && !$pt2[$j]) {
