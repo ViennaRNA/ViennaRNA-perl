@@ -12,6 +12,64 @@ $VERSION     = 1.00;
 @EXPORT_OK   = qw(make_pair_table DB2PairList DB2Shape DB2Helix MergeHelices);
 %EXPORT_TAGS = ( Structures => [qw(&make_pair_table &DB2PairList &DB2Shape &DB2Helix &MergeHelices)] );
 
+sub make_loop_index_from_pt {
+  # number loops and assign each position its loop-number
+  # handy for checking which pairs can be added
+  my @pt = @_;
+  shift @pt; # get rid of length in first entry
+  
+  my (@loop, @olist);
+  my ($l, $nl, $hx) = (0, 0, 0);
+
+  foreach my $i (0 .. $#pt) {
+    if ($i < $pt[$i]) { # '('
+      $l = ++$nl;       # start a new loop
+      $olist[$hx++]=$i;
+    }
+    $loop[$i] = $l;
+    if ($pt[$i] && $pt[$i] < $i) { # ')'
+      --$hx;            # i pairs with olist[--hx]
+      if ($hx > 0) {
+        my $idx = $olist[$hx-1];
+        $l = $loop[$idx];
+      } else {
+        $l = 0;
+      }
+    }
+  }
+
+  unshift @loop, $nl;
+  return @loop;
+}
+
+sub make_loop_index {
+  use integer;
+  # number loops and assign each position its loop-number
+  # handy for checking which pairs can be added
+  my $struc = shift;
+  my($c, $j, @olist, @loop);
+  my ($hx,$i,$l, $nl)=(0,0,0,0);
+  foreach $c (split(//,$struc)) {
+    if ($c eq '(') {
+      $nl++; $l=$nl;       # start a new loop
+      $olist[$hx++]=$i;
+    }
+    $loop[$i]=$l;
+    if ($c eq ')') {
+      --$hx;                         # i pairs with olist[--hx]
+      if ($hx>0) {                   # we're still in a loop
+        my $jj = $olist[$hx-1];    # jj started the previous loop 
+        $l = $loop[$jj] if (defined($jj)); # previous loop index
+      } else {
+        $l = 0;                    # external loop has index 0
+      }
+    }
+    $i++;
+  }
+  push @loop, $nl;
+  return @loop;
+}
+
 
 sub make_pair_table {
    use integer;
