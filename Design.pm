@@ -82,6 +82,10 @@ sub new {
       [1,0,1,0]  # U
     ],
 
+    solution_space => ({
+
+      }),
+
     iupack => ({
       'A' => 'A',
       'C' => 'C',
@@ -292,7 +296,7 @@ sub find_dependency_paths {
     }
   }
 
-  # ZERO-Based
+  # Construct a list of depencency-pathways (ZERO-Based)
   for my $i (1..$#pt1) {
     next if $seen[$i];
 
@@ -335,7 +339,8 @@ This function needs to be called to initialize the subsequent sequence design. I
 the previously computed dependency graph to (i) update the sequence constraint, (ii)
 caclulate the total number of sequences able to fulfill sequence and structure 
 constraints, (iii) set a stop-condition for sequence design dependent on the number
-of possible mutation-moves.
+of possible mutation-moves, (iv) reduces the pathlist to a *slim* pathlist that only
+contains mutateable elements.
 
 =cut
 
@@ -396,6 +401,13 @@ sub explore_sequence_space {
   return ($con, $border, $nos);
 }
 
+=head2 update_constraint()
+
+Rewrite the constraint for a particular dependency path, such that starting an
+arbitrary position would result in a correct path: "NNNRNNN" => "YRYRYRY";
+
+=cut
+
 sub update_constraint {
   my $self = shift;
   my $cycle = shift;
@@ -432,6 +444,13 @@ sub update_constraint {
   return @pseq;
 }
 
+=head2 enumerate_pathways()
+
+For a given constrained depencendy path, calculate the number of sequences
+fulfilling that constraint
+
+=cut
+
 sub enumerate_pathways {
   my $self = shift;
   my $cycle= shift;
@@ -440,6 +459,8 @@ sub enumerate_pathways {
   my %iupack = %{$self->{iupack}};
   my %base   = %{$self->{base}};
   my @pair   = @{$self->{pair}};
+  
+  # my $space  = %{$self->{solution_space}};
 
   my @first = map {$_=$base{$_}} (split //, $iupack{$pseq[0]});
 
@@ -477,6 +498,13 @@ sub enumerate_pathways {
   return scalar(@leaves);
 }
  
+=head2 rewrite_neighbor()
+
+Takes a letter and a reference to the neighbor. Rewrites the neighbor and 
+returns 0 or 1 if there exists a neighbor or not.
+
+=cut
+
 sub rewrite_neighbor {
   my ($self, $c1, $c2) = @_;
   print "$c1 -> $$c2\n" if 0;
@@ -577,6 +605,7 @@ sub optimize_sequence {
 Choose a random cycle, mutate it using make_pathseq of the sequence constraint.
 
 TODO: that could result in the same sequence as before, which is inefficient!
+Rewrite such that it choses randomly according to the number of solutions!
 
 =cut
 
@@ -590,6 +619,7 @@ sub mutate_seq {
   my ($path, @pseq);
   my $cycle = 0;
 
+  # chose a random path => weight by number of solutions to make it fair!
   $path = $plist[int rand @plist];
 
   $cycle = 1 if ($$path[0] eq $$path[-1] && (@$path>1));
@@ -620,6 +650,13 @@ sub make_pathseq {
   my @path = @pseq;
   my $jailbreak=0;
   my ($v,$w)=(0,0);
+
+  # if path only 'N' => do switch method
+  # if path length 1 => return random nuc
+  # if { exists solution_space{path}, return rand in list solutions
+  # else {
+  #  generate_solutions onthefly
+  # }
 
   while (@path ~~ @pseq) {
     for (my $i=0; $i<=$#path; ++$i) {
