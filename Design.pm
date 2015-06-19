@@ -286,7 +286,7 @@ sub find_dependency_paths {
           $pt2[$i]=$pt[$i];
           $pt2[$j]=$pt[$j];
         } else {
-          carp "ignoring basepair $i - $j from structure ".($s+1)."\n";
+          carp "ignoring basepair $i - $j from structure ".($s+1);
         }
       }
     }
@@ -401,7 +401,7 @@ sub update_constraint {
   my $cycle = shift;
   my @pseq  = @_;
 
-  die "cycle of uneven length!" if $cycle && @pseq % 2;
+  croak "cycle of uneven length!" if $cycle && @pseq % 2;
 
   my $jailbreak=0;
   while (1) {
@@ -427,7 +427,7 @@ sub update_constraint {
       }
     }
     last unless $mutated;
-    die "escaping constraint updates" if $jailbreak++ > 100;
+    croak "escaping from seemingly endless constraint updates" if $jailbreak++ > 100;
   }
   return @pseq;
 }
@@ -646,20 +646,20 @@ sub eval_sequence {
 
   my $verb = $self->{verb};
   my $ofun = $self->{optfunc};
-  print STDERR $ofun."\n" if $verb > 1;
+  warn $ofun."\n" if $verb > 1;
 
   my %results;
   $RNA::fold_constrained=1;
   foreach my $func (qw/eos eos_circ pfc pfc_circ gfe gfe_circ prob prob_circ/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
-      print STDERR "next: $&\n" if $verb > 1;
+      warn "next: $&\n" if $verb > 1;
       $results{$&} = eval "\$self->$func(\$seq, $1)" unless exists $results{$&};
       $ofun =~ s/$func\(([0-9\,\s]*)\)/ $results{$&} /;
     }
   }
   $RNA::fold_constrained=0;
 
-  print STDERR $ofun."\n" if $verb > 1;
+  warn $ofun."\n" if $verb > 1;
   my $r = eval $ofun;
   warn $@ if $@;
 
