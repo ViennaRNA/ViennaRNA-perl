@@ -467,12 +467,34 @@ sub enumerate_pathways {
   return scalar(@{$solutions{$pstr}}) if exists $solutions{$pstr};
   # return fibro(length $pstr) if you have only N's
   
-  my @pathseqs = ();
-
   my @first = map {$_=$base{$_}} (split //, $iupack{$pseq[0]});
 
-  push @pathseqs, [$_] foreach @first;
-  #print Dumper (\@pathseqs);
+  my $tree = RNA::Design::Tree->new();
+  my @le = $tree->get_leaves;
+  $tree->init_new_leaves;
+  foreach (split //, $iupack{$pseq[0]}) {
+    foreach my $l (@le) {
+      $tree->push_to_current_leaves($_, $l);
+    }
+  }
+
+  for my $i (1 .. $#pseq) {
+    my @choices = split //, $iupack{$pseq[$i]};
+    my @leaves = $tree->get_leaves;
+    $tree->init_new_leaves;
+    foreach my $c (@choices) {
+      foreach my $l (@leaves) {
+        if ($self->{pair}->[$base{$$l[0]}][$base{$c}]) {
+          $tree->push_to_current_leaves($c, $l);
+        }
+      }
+    }
+  }
+  #print Dumper ($tree);
+
+  foreach ($tree->get_leaves) {
+    print $tree->get_full_path($_)."\n";
+  }
 
   my @leaves=@first;
   for my $i (1 .. $#pseq) {
@@ -851,3 +873,62 @@ sub gfe_circ {
 }
 
 1;
+
+package RNA::Design::Tree;
+
+use strict;
+use warnings;
+use Data::Dumper;
+
+sub new {
+  my $class = shift;
+  my $self  = {
+    tree => [
+      [
+        ['root', undef]
+      ]
+    ],
+  };
+
+  bless $self, $class;
+  return $self;
+}
+
+sub init_new_leaves {
+  my $self = shift;
+  push @{$self->{tree}}, [];
+  return $self->{tree};
+}
+
+sub push_to_current_leaves {
+  my $self = shift;
+  my ($string, $parent) = @_;
+
+  my $tree = $self->{tree};
+  my $leaves = $$tree[-1];
+
+  push @$leaves, [$string, $parent];
+  
+  return $self->{tree};
+}
+
+sub get_leaves {
+  my $self = shift;
+  return @{${$self->{tree}}[-1]};
+}
+
+sub get_full_path {
+  my $self  = shift;
+  my $leave = shift;
+
+  my $string;
+  my ($char, $ref) = @$leave;
+  while ($char ne 'root') {
+    $string .= $char;
+    ($char, $ref) = @$ref;
+  }
+  return $string;
+}
+
+1;
+
