@@ -387,6 +387,10 @@ sub explore_sequence_space {
 
     if ($num > 1) {
       push @slim_plist, $path;
+      #  my $ref = \$slim_plist[-1];
+      #  for (2 .. $num) {
+      #    push @slim_plist, $ref;
+      #  }
       $border += $num;
       $nos    *= $num;
     }
@@ -464,70 +468,57 @@ sub enumerate_pathways {
   my %solutions = %{$self->{solution_space}};
 
   my $pstr = join '', @pseq;
-  return scalar(@{$solutions{$pstr}}) if exists $solutions{$pstr};
+  if (exists $solutions{$pstr.$cycle}) {
+    #warn "saved some time\n";
+    return scalar($solutions{$pstr.$cycle}->get_leaves);
+  }
   # return fibro(length $pstr) if you have only N's
   
-  my @first = map {$_=$base{$_}} (split //, $iupack{$pseq[0]});
-
   my $tree = RNA::Design::Tree->new();
   my @le = $tree->get_leaves;
   $tree->init_new_leaves;
   foreach (split //, $iupack{$pseq[0]}) {
-    foreach my $l (@le) {
-      $tree->push_to_current_leaves($_, $l);
-    }
+    $tree->push_to_current_leaves($_, $le[0]);
   }
-
+  
   for my $i (1 .. $#pseq) {
     my @choices = split //, $iupack{$pseq[$i]};
-    my @leaves = $tree->get_leaves;
+    my @leaves  = $tree->get_leaves;
     $tree->init_new_leaves;
-    foreach my $c (@choices) {
-      foreach my $l (@leaves) {
-        if ($self->{pair}->[$base{$$l[0]}][$base{$c}]) {
-          $tree->push_to_current_leaves($c, $l);
-        }
-      }
-    }
-  }
-  #print Dumper ($tree);
 
-  foreach ($tree->get_leaves) {
-    print $tree->get_full_path($_)."\n";
-  }
-
-  my @leaves=@first;
-  for my $i (1 .. $#pseq) {
-    my @choices = map {$_=$base{$_}} (split //, $iupack{$pseq[$i]});
-    my @next_leaves=();
-
-    # in case we have a cycle
     if ($i == $#pseq && $cycle) {
       foreach my $l (@leaves) {
         foreach my $c (@choices) {
-          if ($self->{pair}->[$l][$c]) {
-            # only add the leave if it also pairs with the first row!
-            foreach my $f (@first) {
-              if ($self->{pair}->[$f][$c]) {
-                push @next_leaves, $c;
-                last;
-              }
+          if ($self->{pair}->[$base{$$l[0]}][$base{$c}]) {
+            # check if $c also pairs with anything in the first row!
+            my $string = $tree->get_full_path($l);
+            my $f = substr $string, 0, 1;
+            if ($self->{pair}->[$base{$c}][$base{$f}]) {
+              $tree->push_to_current_leaves($c, $l);
             }
+
           }
         }
       }
     } else {
-      foreach my $l (@leaves) {
-        foreach my $c (@choices) {
-          push @next_leaves, $c if $self->{pair}->[$l][$c];
+      foreach my $c (@choices) {
+        foreach my $l (@leaves) {
+          if ($self->{pair}->[$base{$$l[0]}][$base{$c}]) {
+            $tree->push_to_current_leaves($c, $l);
+          }
         }
       }
     }
-    #print "@next_leaves\n";
-    @leaves = @next_leaves;
   }
 
-  return scalar(@leaves);
+  #print $pstr.$cycle."\n";
+  #foreach ($tree->get_leaves) {
+  #  print $tree->get_full_path($_)."\n";
+  #}
+
+  $self->{solution_space}->{$pstr.$cycle} = $tree;
+  #print Dumper ($self->{solution_space}->{$pstr.$cycle});
+  return scalar($tree->get_leaves);
 }
  
 =head2 rewrite_neighbor()
@@ -688,16 +679,21 @@ sub make_pathseq {
     # if path length 1 => return random iupack
     my @i = split '', $iupack{$pstr};
     $path[0] = $i[int rand @i];
-  } elsif (exists $solutions{$pstr}) {
+  } elsif (exists $solutions{$pstr.$cycle}) {
+    my $tree = $solutions{$pstr.$cycle};
     # if paths hardcoded => return string 
-    my @i = @{$solutions{$pstr}};
-    @path = split '', $i[int rand @i];
+    my @i = $tree->get_leaves;
+    @path = split '', $tree->get_full_path($i[int rand @i]);
   } 
+
   #elsif (grep {$_ ne 'N'} @pseq) {
   #  # damn, now we have to compute again ...
   #} 
+  
   else { # its a path with all N's
     # do the fibronacci stuff
+
+    warn "all pathways should be stored!\n";
 
     # old version for greedy shuffling
     for (my $i=0; $i<=$#path; ++$i) {
@@ -917,6 +913,11 @@ sub get_leaves {
   return @{${$self->{tree}}[-1]};
 }
 
+sub get_first {
+  my $self = shift;
+  return @{${$self->{tree}}[1]};
+}
+
 sub get_full_path {
   my $self  = shift;
   my $leave = shift;
@@ -927,7 +928,7 @@ sub get_full_path {
     $string .= $char;
     ($char, $ref) = @$ref;
   }
-  return $string;
+  return reverse $string;
 }
 
 1;

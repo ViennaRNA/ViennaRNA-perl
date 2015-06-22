@@ -24,7 +24,7 @@ subtest 'RNA::Design -- Default Options' => sub {
 };
 
 subtest 'RNA::Design -- Internal Functions' => sub {
-  plan tests => 13;
+  plan tests => 15;
   my ($nuc1, $nuc2) = ('R', 'N');
   is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 1, 'rewrite_neighbor() - change');
   is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 0, 'rewrite_neighbor() - constant');
@@ -39,59 +39,65 @@ subtest 'RNA::Design -- Internal Functions' => sub {
   is ($ViennaDesign->enumerate_pathways($cycle = 0, @path),
     $ViennaDesign->enumerate_pathways($cycle = 0, @outp), 'enumerate_pathways() - no overcounting');
 
+  is ($ViennaDesign->enumerate_pathways($cycle = 0, @outp), 15, 'enumerate_pathways() - path_long');
+  is ($ViennaDesign->enumerate_pathways($cycle = 1, @outp), 13, 'enumerate_pathways() - cycle_long');
+
   is ($ViennaDesign->enumerate_pathways($cycle = 0, ('A','N','N','N')), 3, 'enum_pathways() - path');
   is ($ViennaDesign->enumerate_pathways($cycle = 1, ('A','N','N','N')), 2, 'enum_pathways() - cycle');
+  #is ($ViennaDesign->enumerate_pathways($cycle = 1, ('A','N','N','N')), 2, 'enum_pathways() - cycle');
 
   @path =     ('N','N','N','N','N','N','N','N');
+  #@path =     ('N','N','N');
   #push @path, ('N','N','N','N','N','N');
   #push @path, ('N','N','R','N','N','N');
   #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','N','B','N','N');
-  #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','C','N','N','N','N');
-  #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','N','N','N','N');
   #@path = ('N','N','N','N','N','N','N','N','N');
-  
-  #my @b;# = ([0,0,0,0]) x @path;
-  #push @b, [0,0,0,0] foreach @path;
-  #my %bb = (
-  #  'A' => 0,
-  #  'C' => 1,
-  #  'G' => 2,
-  #  'U' => 3,
-  #);
+ 
+  #  @path = $ViennaDesign->update_constraint($cycle = 0, @path);
+  #  my $count = $ViennaDesign->enumerate_pathways($cycle = 0, @path);
+  #  print "$count @path\n";
 
-  #@path = $ViennaDesign->update_constraint($cycle = 0, @path);
-  #print "@path\n";
-  #for my $r (0..1000) {
-  #  my @tmp = $ViennaDesign->make_pathseq($cycle = 0, @path);
-  #  #print "@tmp\n";
-  #  for my $t (0 .. $#tmp) {
-  #    my $idx = $bb{$tmp[$t]};
-  #    $b[$t]->[$idx]+=1;
+  #  # check if pathways are drawn with even probability
+  #  my %resp;
+  #  for my $r (0..100) {
+  #    my $tmp = join '', $ViennaDesign->make_pathseq($cycle = 0, @path);
+  #    $resp{$tmp}++;
   #  }
-  #}
-  #print "@$_\n" foreach @b;
+  #  print "$_: $resp{$_}\n" foreach keys %resp;
 
   @path = @outp;
 
+  # my $count;
+  # $count = $ViennaDesign->enumerate_pathways($cycle = 0, @path);
+  # #$count = $ViennaDesign->enumerate_pathways($cycle = 1, @path);
+  # print "$count @path\n";
+
+  # # check if pathways are drawn with even probability
+  # my %resp;
+  # for my $r (0..100) {
+  #   my $tmp = join '', $ViennaDesign->make_pathseq($cycle = 1, @path);
+  #   $resp{$tmp}++;
+  # }
+  # print "$_: $resp{$_}\n" foreach keys %resp;
+
+  # for my $r (0..20) {
+  #   srand ($r);
+  #   my @tmp = $ViennaDesign->make_pathseq($cycle = 0, @path);
+  #   print "$r: @tmp\n";
+  # }
+
   @outp = ('C','G','C','G','C','G','U','A');
-  srand(30); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
+  srand(1); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
   @outp = ('C','G','C','G','C','G','U','G');
-  srand(30); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
+  srand(6); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
 
   @outp = ('C','G','U','G','C','G','C','G');
-  srand(1); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
-  srand(1); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
+  srand(20); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
+  srand(15); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
 
   @outp = ('U','A','U','G','C','G','U','G');
-  srand(2); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
-  srand(2); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
+  srand(18); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
+  srand(11); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
 
 };
 
