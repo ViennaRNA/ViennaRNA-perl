@@ -60,8 +60,9 @@ sub new {
     border=> 0,
     nos   => undef,
     plist => [],
-    prob  => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
     avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
+    avoid_penalty => 5,
+    base_probs  => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
     verb  => 0,
 
     structures  => [],
@@ -219,6 +220,28 @@ Get and Set stuff
     return $self->{avoid};
   }
 
+  sub set_avoid_penalty {
+    my ($self, $var) = @_;
+    $self->{avoid_penalty} = $var;
+    return $self->{avoid_penalty};
+  }
+
+  sub get_avoid_penalty {
+    my $self = shift;
+    return $self->{avoid_penalty};
+  }
+
+  sub set_base_probs {
+    my ($self, $var) = @_;
+    $self->{base_probs} = $var;
+    return $self->{base_probs};
+  }
+
+  sub get_base_probs {
+    my $self = shift;
+    return $self->{base_probs};
+  }
+
   sub add_structures {
     my $self = shift;
     push @{$self->{structures}}, @_;
@@ -291,7 +314,7 @@ sub find_dependency_paths {
           $pt2[$i]=$pt[$i];
           $pt2[$j]=$pt[$j];
         } else {
-          carp "ignoring basepair $i - $j from structure ".($s+1)."\n";
+          carp "ignoring basepair $i - $j from structure ".($s+1);
         }
       }
     }
@@ -418,7 +441,7 @@ sub update_constraint {
   my $cycle = shift;
   my @pseq  = @_;
 
-  die "cycle of uneven length!" if $cycle && @pseq % 2;
+  croak "cycle of uneven length!" if $cycle && @pseq % 2;
 
   my $jailbreak=0;
   while (1) {
@@ -444,7 +467,7 @@ sub update_constraint {
       }
     }
     last unless $mutated;
-    die "escaping constraint updates" if $jailbreak++ > 100;
+    croak "escaping from seemingly endless constraint updates" if $jailbreak++ > 100;
   }
   return @pseq;
 }
@@ -726,25 +749,26 @@ sub eval_sequence {
 
   my $verb = $self->{verb};
   my $ofun = $self->{optfunc};
-  print STDERR $ofun."\n" if $verb > 1;
+  my $apen = $self->{avoid_penalty};
+  warn $ofun."\n" if $verb > 1;
 
   my %results;
   $RNA::fold_constrained=1;
   foreach my $func (qw/eos eos_circ pfc pfc_circ gfe gfe_circ prob prob_circ/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
-      print STDERR "next: $&\n" if $verb > 1;
+      warn "next: $&\n" if $verb > 1;
       $results{$&} = eval "\$self->$func(\$seq, $1)" unless exists $results{$&};
       $ofun =~ s/$func\(([0-9\,\s]*)\)/ $results{$&} /;
     }
   }
   $RNA::fold_constrained=0;
 
-  print STDERR $ofun."\n" if $verb > 1;
+  warn $ofun."\n" if $verb > 1;
   my $r = eval $ofun;
   warn $@ if $@;
 
   my $p = $self->base_prob($seq);
-  my $a = $self->base_avoid($seq, 5);
+  my $a = $self->base_avoid($seq, $apen);
 
   return $r*$p*$a;
 }
@@ -763,7 +787,7 @@ sub base_avoid {
 sub base_prob {
   my ($self, $seq) = @_;
 
-  my %prob = %{$self->{prob}};
+  my %prob = %{$self->{base_probs}};
   my %base;
   $base{$_}++ foreach (split //, $seq);
 
