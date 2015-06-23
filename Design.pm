@@ -59,8 +59,9 @@ sub new {
     border=> 0,
     nos   => undef,
     plist => [],
-    prob  => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
     avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
+    avoid_penalty => 5,
+    base_probs  => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
     verb  => 0,
 
     structures  => [],
@@ -212,6 +213,28 @@ Get and Set stuff
   sub get_avoid {
     my $self = shift;
     return $self->{avoid};
+  }
+
+  sub set_avoid_penalty {
+    my ($self, $var) = @_;
+    $self->{avoid_penalty} = $var;
+    return $self->{avoid_penalty};
+  }
+
+  sub get_avoid_penalty {
+    my $self = shift;
+    return $self->{avoid_penalty};
+  }
+
+  sub set_base_probs {
+    my ($self, $var) = @_;
+    $self->{base_probs} = $var;
+    return $self->{base_probs};
+  }
+
+  sub get_base_probs {
+    my $self = shift;
+    return $self->{base_probs};
   }
 
   sub add_structures {
@@ -646,6 +669,7 @@ sub eval_sequence {
 
   my $verb = $self->{verb};
   my $ofun = $self->{optfunc};
+  my $apen = $self->{avoid_penalty};
   warn $ofun."\n" if $verb > 1;
 
   my %results;
@@ -664,7 +688,7 @@ sub eval_sequence {
   warn $@ if $@;
 
   my $p = $self->base_prob($seq);
-  my $a = $self->base_avoid($seq, 5);
+  my $a = $self->base_avoid($seq, $apen);
 
   return $r*$p*$a;
 }
@@ -683,7 +707,7 @@ sub base_avoid {
 sub base_prob {
   my ($self, $seq) = @_;
 
-  my %prob = %{$self->{prob}};
+  my %prob = %{$self->{base_probs}};
   my %base;
   $base{$_}++ foreach (split //, $seq);
 
