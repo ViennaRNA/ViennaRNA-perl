@@ -409,11 +409,7 @@ sub explore_sequence_space {
     }
 
     if ($num > 1) {
-      push @slim_plist, $path;
-      #  my $ref = \$slim_plist[-1];
-      #  for (2 .. $num) {
-      #    push @slim_plist, $ref;
-      #  }
+      push @slim_plist, $path; # for (1 .. $num);
       $border += $num;
       $nos    *= $num;
     }
@@ -476,7 +472,7 @@ sub update_constraint {
 
 For a given constrained depencendy path, calculate the number of sequences
 fulfilling that constraint
-TODO : fill solution space
+TODO : fill fibronaccies
 
 =cut
 
@@ -494,8 +490,11 @@ sub enumerate_pathways {
   if (exists $solutions{$pstr.$cycle}) {
     #warn "saved some time\n";
     return scalar($solutions{$pstr.$cycle}->get_leaves);
-  }
-  # return fibro(length $pstr) if you have only N's
+  } 
+  # elsif ($pstr !~ m/[^N]/g) {
+  #   die "got only Ns in pstring: $pstr";
+  #   return fibro(length $pstr);
+  # }
   
   my $tree = RNA::Design::Tree->new();
   my @le = $tree->get_leaves;
@@ -534,13 +533,13 @@ sub enumerate_pathways {
     }
   }
 
+  #DEBUG:
   #print $pstr.$cycle."\n";
   #foreach ($tree->get_leaves) {
   #  print $tree->get_full_path($_)."\n";
   #}
 
   $self->{solution_space}->{$pstr.$cycle} = $tree;
-  #print Dumper ($self->{solution_space}->{$pstr.$cycle});
   return scalar($tree->get_leaves);
 }
  
@@ -575,8 +574,6 @@ sub rewrite_neighbor {
 =head2 find_a_sequence()
 
 Uses the dependency graph and the sequence constraint to make a random sequence. 
-
-TODO: The random-sequence should already include the information of get_probs().
 
 =cut
 
@@ -682,6 +679,11 @@ sub mutate_seq {
 =head2 make_pathseq()
 
 Takes an Array of IUPACK code and randomly rewrites it into a valid array of Nucleotides
+We have four different methods: 
+(i) path of length 1 is straight forward from IUPACK code, 
+(ii) we have the solution-tree stored in a hash
+(iii) it is a sequence of all N's so we just use fibronacci (TODO)
+(iv) it is a very long, constrained path such that we have to recomute it every time (TODO)
 
 =cut
 
@@ -704,7 +706,6 @@ sub make_pathseq {
     $path[0] = $i[int rand @i];
   } elsif (exists $solutions{$pstr.$cycle}) {
     my $tree = $solutions{$pstr.$cycle};
-    # if paths hardcoded => return string 
     my @i = $tree->get_leaves;
     @path = split '', $tree->get_full_path($i[int rand @i]);
   } 
@@ -715,9 +716,7 @@ sub make_pathseq {
   
   else { # its a path with all N's
     # do the fibronacci stuff
-
-    warn "all pathways should be stored!\n";
-
+    die "all pathways should be stored currently!\n";
     # old version for greedy shuffling
     for (my $i=0; $i<=$#path; ++$i) {
       my $c = $path[$i];
