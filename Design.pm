@@ -84,6 +84,7 @@ sub new {
       [1,0,1,0]  # U
     ],
 
+    max_const_plen => 20,
     solution_space => ({
 
       }),
@@ -485,22 +486,42 @@ sub enumerate_pathways {
   my %base   = %{$self->{base}};
   my @pair   = @{$self->{pair}};
   my %solutions = %{$self->{solution_space}};
+  my $max_plen  = $self->{max_const_plen};
 
   my $pstr = join '', @pseq;
   my $plen = length $pstr;
   if (exists $solutions{$pstr.$cycle}) {
     #warn "saved some time\n";
     return scalar($solutions{$pstr.$cycle}->get_leaves);
-  } elsif ($pstr !~ m/[^N]/g) {
-    my $nos;
-    if ($cycle) {
-      $nos = 2*($self->get_fibo($plen+1) + $self->get_fibo($plen-1));
-    } else {
-      $nos = 2*($self->get_fibo($plen+1) + $self->get_fibo($plen));
-    }
-    return $nos;
-  } # elsif (path too long?);
-  
+  } elsif ($pstr !~ m/[^N]/g) { 
+    # its a path with all N's
+    my $l = ($cycle) ? $plen-1 : $plen;
+    return 2*($self->get_fibo($plen+1) + $self->get_fibo($l));
+  } 
+  # # TODO: need to adjust the switch.pl method
+  # elsif ($pstr !~ m/[^RY]/g) { 
+  #   # its a path with all RY's
+  #   my $l = ($cycle) ? $plen-1 : $plen;
+  #   return ($self->get_fibo($plen+1) + $self->get_fibo($l));
+  # } 
+  #
+  elsif ($plen > $max_plen) { # path too long to enumerate with constraints
+    warn "constrained path too long, using a heuristic!\n";
+    my $l = ($cycle) ? $plen-1 : $plen;
+    return ($self->get_fibo($plen+1) + $self->get_fibo($l));
+    # calculate RYRYR as NNNN/2 and use greedy-shuffle
+
+    # compute the theoretical sequence length (n) to construct an 
+    # example that breaks plen: n = (plen-1)*4 + 1 
+    # so for plen=26 => n=101
+    # if we assume a helix has 4 base-pairs, it is:
+    # n = (plen-1)*12 + 1 = 301
+    
+    # other possibility (?):
+    #   do switch method with the right RYRY seed
+    #   and reject solutions that result in forbidden sequence
+  }
+
   my $tree = RNA::Design::Tree->new();
   my @le = $tree->get_leaves;
   $tree->init_new_leaves;
@@ -543,9 +564,13 @@ sub enumerate_pathways {
   #foreach ($tree->get_leaves) {
   #  print $tree->get_full_path($_)."\n";
   #}
-
+  
   $self->{solution_space}->{$pstr.$cycle} = $tree;
   return scalar($tree->get_leaves);
+}
+
+sub fill_solution_space {
+
 }
  
 =head2 rewrite_neighbor()
@@ -700,12 +725,16 @@ sub make_pathseq {
   my %iupack   = %{$self->{iupack}};
   my %iupack_bin=%{$self->{iupack_bin}};
   my %solutions =%{$self->{solution_space}};
+  my $max_plen  = $self->{max_const_plen};
 
   my @path = @pseq;
   my $pstr = join '', @pseq;
+  my $plen = length $pstr;
   my ($v,$w)=(0,0);
 
-  if (length $pstr == 1) {
+  die "cycles must have even length" if $cycle && $plen%2;
+
+  if ($plen == 1) {
     # if path length 1 => return random iupack
     my @i = split '', $iupack{$pstr};
     $path[0] = $i[int rand @i];
@@ -713,16 +742,51 @@ sub make_pathseq {
     my $tree = $solutions{$pstr.$cycle};
     my @i = $tree->get_leaves;
     @path = split '', $tree->get_full_path($i[int rand @i]);
-  } 
+  } elsif ($pstr !~ m/[^N]/g) { 
+    # its a path with all N's => do it like switch.pl
+    
+    #warn "do the switch method\n";
+    
+    # This is original switch.pl code that I don't understand!
+    my $l = $plen;
+    my $ll = ($cycle) ? $l-1 : $l;
+    my $n = 2*($self->get_fibo($l+1) + $self->get_fibo($ll));
 
-  #elsif (grep {$_ ne 'N'} @pseq) {
-  #  # damn, now we have to compute again ...
-  #} 
-  
-  else { # its a path with all N's
-    # do the fibronacci stuff
-    die "all pathways should be stored currently!\n";
-    # old version for greedy shuffling
+    my $rand = rand($n);
+
+    my @seq = ();
+    # set first base in sequence
+    if ($rand < $self->get_fibo($ll)) {
+      push @seq, 'A', 'U';
+    } elsif ($rand < 2*$self->get_fibo($ll)) {
+      push @seq, 'C', 'G'; 
+      $rand -= $self->get_fibo($ll);
+    } else {
+      $rand -= 2*$self->get_fibo($ll); 
+      $ll=$l;
+      push @seq, ($rand>=$self->get_fibo($l+1))?'U':'G';
+      $rand -= $self->get_fibo($l+1) if $rand >= $self->get_fibo($l+1);
+    }
+
+    # grow sequence to length $l
+    # if we have a cycle starting with A or C $ll=$l-1, else $ll=$l
+    while (@seq < $l) {
+      if ($rand < $self->get_fibo($ll-@seq)) {
+        push @seq, 'C','G' if ($seq[-1] eq 'G');
+        push @seq, 'A','U' if ($seq[-1] eq 'U');
+      } else {
+        $rand -= $self->get_fibo($ll-@seq);
+        push @seq, ($seq[-1] eq 'G') ? 'U' : 'G';
+      }
+    }
+    pop @seq if (@seq > $l); # in case we've added one base too many
+    return @seq;
+  } 
+  elsif ($plen > $max_plen) { 
+    # a constraint path that is too long!
+    # do a greedy constraint shuffling!
+    #warn "=> greedy all pathways should be stored currently!\n";
+    
     for (my $i=0; $i<=$#path; ++$i) {
       my $c = $path[$i];
       my @i = split '', $iupack{$c};
@@ -736,7 +800,8 @@ sub make_pathseq {
 
       $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
     }
-
+  } else {
+    die "some special case not covered yet!\n";
   }
   return @path;
 }

@@ -46,24 +46,25 @@ subtest 'RNA::Design -- Internal Functions' => sub {
   is ($ViennaDesign->enumerate_pathways($cycle = 1, ('A','N','N','N')), 2, 'enum_pathways() - cycle');
   #is ($ViennaDesign->enumerate_pathways($cycle = 1, ('A','N','N','N')), 2, 'enum_pathways() - cycle');
 
-  @path =     ('N','N','N','N','N','N','N','N');
-  #@path =     ('N','N','N');
+  #@path =     ('N','N','N','N','N','N','N','N');
+  @path =     ('N','N','N','N','G','N');
+  push @path, ('N','N','R','N','N','N');
+  push @path, ('N','N','N','N','N','N');
   #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','R','N','N','N');
   #push @path, ('N','N','N','N','N','N');
-  #@path = ('N','N','N','N','N','N','N','N','N');
+  #push @path, ('N','N','N','N','N','N');
  
-  #  @path = $ViennaDesign->update_constraint($cycle = 0, @path);
-  my $count = $ViennaDesign->enumerate_pathways($cycle = 1, @path);
-  print "$count @path\n";
+  @path = $ViennaDesign->update_constraint($cycle = 0, @path);
+  my $count = $ViennaDesign->enumerate_pathways($cycle = 0, @path);
+  print "@path $count\n";
 
-  #  # check if pathways are drawn with even probability
-  #  my %resp;
-  #  for my $r (0..100) {
-  #    my $tmp = join '', $ViennaDesign->make_pathseq($cycle = 0, @path);
-  #    $resp{$tmp}++;
-  #  }
-  #  print "$_: $resp{$_}\n" foreach keys %resp;
+  # check if pathways are drawn with even probability
+  #my %resp;
+  #for my $r (0..10000) {
+  #  my $tmp = join '', $ViennaDesign->make_pathseq($cycle = 0, @path);
+  #  $resp{$tmp}++;
+  #}
+  #print "$_: $resp{$_}\n" foreach sort keys %resp;
 
   @path = @outp;
 
@@ -139,6 +140,9 @@ is_deeply([$ViennaDesign->explore_sequence_space()], \@explore, 'explore_sequenc
 
 
 print "done testing\n";
+
+
+sub sample { }
 
 # TODO: 
 # $sequence = find_a_sequence(@clist, $constraint);
