@@ -487,14 +487,19 @@ sub enumerate_pathways {
   my %solutions = %{$self->{solution_space}};
 
   my $pstr = join '', @pseq;
+  my $plen = length $pstr;
   if (exists $solutions{$pstr.$cycle}) {
     #warn "saved some time\n";
     return scalar($solutions{$pstr.$cycle}->get_leaves);
-  } 
-  # elsif ($pstr !~ m/[^N]/g) {
-  #   die "got only Ns in pstring: $pstr";
-  #   return fibro(length $pstr);
-  # }
+  } elsif ($pstr !~ m/[^N]/g) {
+    my $nos;
+    if ($cycle) {
+      $nos = 2*($self->get_fibo($plen+1) + $self->get_fibo($plen-1));
+    } else {
+      $nos = 2*($self->get_fibo($plen+1) + $self->get_fibo($plen));
+    }
+    return $nos;
+  } # elsif (path too long?);
   
   my $tree = RNA::Design::Tree->new();
   my @le = $tree->get_leaves;

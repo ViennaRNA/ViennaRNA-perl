@@ -54,8 +54,8 @@ subtest 'RNA::Design -- Internal Functions' => sub {
   #@path = ('N','N','N','N','N','N','N','N','N');
  
   #  @path = $ViennaDesign->update_constraint($cycle = 0, @path);
-  #  my $count = $ViennaDesign->enumerate_pathways($cycle = 0, @path);
-  #  print "$count @path\n";
+  my $count = $ViennaDesign->enumerate_pathways($cycle = 1, @path);
+  print "$count @path\n";
 
   #  # check if pathways are drawn with even probability
   #  my %resp;
