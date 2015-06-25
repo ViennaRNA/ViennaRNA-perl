@@ -472,8 +472,7 @@ sub update_constraint {
 =head2 enumerate_pathways()
 
 For a given constrained depencendy path, calculate the number of sequences
-fulfilling that constraint
-TODO : fill fibronaccies
+fulfilling that constraint. 
 
 =cut
 
@@ -482,31 +481,34 @@ sub enumerate_pathways {
   my $cycle= shift;
   my @pseq = @_;
 
-  my %iupack = %{$self->{iupack}};
-  my %base   = %{$self->{base}};
-  my @pair   = @{$self->{pair}};
-  my %solutions = %{$self->{solution_space}};
-  my $max_plen  = $self->{max_const_plen};
-
   my $pstr = join '', @pseq;
   my $plen = length $pstr;
+
+  croak "cycles must have even length" if $cycle && $plen%2;
+
+  my %solutions = %{$self->{solution_space}};
+  my $max_plen  = $self->{max_const_plen};
+  my %iupack    = %{$self->{iupack}};
+  my %base      = %{$self->{base}};
+  my @pair      = @{$self->{pair}};
+
   if (exists $solutions{$pstr.$cycle}) {
-    #warn "saved some time\n";
     return scalar($solutions{$pstr.$cycle}->get_leaves);
   } elsif ($pstr !~ m/[^N]/g) { 
-    # its a path with all N's
+    # its a path with all N's => (fibronacci: switch.pl)
     my $l = ($cycle) ? $plen-1 : $plen;
     return 2*($self->get_fibo($plen+1) + $self->get_fibo($l));
   } 
-  # # TODO: need to adjust the switch.pl method
-  # elsif ($pstr !~ m/[^RY]/g) { 
+  # enable this as soon as fair sampling in this case works!
+  # elsif ($pstr !~ m/[^RY]/g) {
   #   # its a path with all RY's
   #   my $l = ($cycle) ? $plen-1 : $plen;
   #   return ($self->get_fibo($plen+1) + $self->get_fibo($l));
   # } 
   #
-  elsif ($plen > $max_plen) { # path too long to enumerate with constraints
-    warn "constrained path too long, using a heuristic!\n";
+  elsif ($plen > $max_plen) { 
+    # path too long to enumerate with constraints
+    carp "constrained path too long, fallback to greedy heuristic!";
     my $l = ($cycle) ? $plen-1 : $plen;
     return ($self->get_fibo($plen+1) + $self->get_fibo($l));
     # calculate RYRYR as NNNN/2 and use greedy-shuffle
@@ -516,10 +518,6 @@ sub enumerate_pathways {
     # so for plen=26 => n=101
     # if we assume a helix has 4 base-pairs, it is:
     # n = (plen-1)*12 + 1 = 301
-    
-    # other possibility (?):
-    #   do switch method with the right RYRY seed
-    #   and reject solutions that result in forbidden sequence
   }
 
   my $tree = RNA::Design::Tree->new();
@@ -537,11 +535,11 @@ sub enumerate_pathways {
     if ($i == $#pseq && $cycle) {
       foreach my $l (@leaves) {
         foreach my $c (@choices) {
-          if ($self->{pair}->[$base{$$l[0]}][$base{$c}]) {
+          if ($pair[$base{$$l[0]}][$base{$c}]) {
             # check if $c also pairs with anything in the first row!
             my $string = $tree->get_full_path($l);
             my $f = substr $string, 0, 1;
-            if ($self->{pair}->[$base{$c}][$base{$f}]) {
+            if ($pair[$base{$c}][$base{$f}]) {
               $tree->push_to_current_leaves($c, $l);
             }
 
@@ -551,7 +549,7 @@ sub enumerate_pathways {
     } else {
       foreach my $c (@choices) {
         foreach my $l (@leaves) {
-          if ($self->{pair}->[$base{$$l[0]}][$base{$c}]) {
+          if ($pair[$base{$$l[0]}][$base{$c}]) {
             $tree->push_to_current_leaves($c, $l);
           }
         }
@@ -708,12 +706,12 @@ sub mutate_seq {
 
 =head2 make_pathseq()
 
-Takes an Array of IUPACK code and randomly rewrites it into a valid array of Nucleotides
-We have four different methods: 
-(i) path of length 1 is straight forward from IUPACK code, 
-(ii) we have the solution-tree stored in a hash
-(iii) it is a sequence of all N's so we just use fibronacci (TODO)
-(iv) it is a very long, constrained path such that we have to recomute it every time (TODO)
+Takes an Array of IUPACK code and rewrites it into a valid array of Nucleotides. There
+are four cases: (i) path of length 1 is a randomly shuffled nucleotide accoriding to 
+iupack-letter, (ii) The solution-tree has been built before and so we save some work,
+(iii) the sequence is only N's, so fibronacci is used (i.e. switch.pl method), and
+(iv) the path is constrained and longer than *max_const_plen* so the solution space
+is counted by fibronacci and paths are shuffled with a greedy heuristic.
 
 =cut
 
@@ -722,30 +720,28 @@ sub make_pathseq {
   my $cycle= shift;
   my @pseq = @_; 
 
-  my %iupack   = %{$self->{iupack}};
-  my %iupack_bin=%{$self->{iupack_bin}};
-  my %solutions =%{$self->{solution_space}};
-  my $max_plen  = $self->{max_const_plen};
-
-  my @path = @pseq;
   my $pstr = join '', @pseq;
   my $plen = length $pstr;
-  my ($v,$w)=(0,0);
 
-  die "cycles must have even length" if $cycle && $plen%2;
+  croak "cycles must have even length" if $cycle && $plen%2;
+
+  my %iupack    = %{$self->{iupack}};
+  my %iupack_bin= %{$self->{iupack_bin}};
+  my %solutions = %{$self->{solution_space}};
+  my $max_plen  =   $self->{max_const_plen};
 
   if ($plen == 1) {
     # if path length 1 => return random iupack
     my @i = split '', $iupack{$pstr};
-    $path[0] = $i[int rand @i];
+    return ($i[int rand @i]);
   } elsif (exists $solutions{$pstr.$cycle}) {
     my $tree = $solutions{$pstr.$cycle};
     my @i = $tree->get_leaves;
-    @path = split '', $tree->get_full_path($i[int rand @i]);
+    return (split '', $tree->get_full_path($i[int rand @i]));
   } elsif ($pstr !~ m/[^N]/g) { 
     # its a path with all N's => do it like switch.pl
     
-    #warn "do the switch method\n";
+    #TODO: need to implement this method for RY-pathways as well
     
     # This is original switch.pl code that I don't understand!
     my $l = $plen;
@@ -781,12 +777,11 @@ sub make_pathseq {
     }
     pop @seq if (@seq > $l); # in case we've added one base too many
     return @seq;
-  } 
-  elsif ($plen > $max_plen) { 
-    # a constraint path that is too long!
+  } else {
     # do a greedy constraint shuffling!
-    #warn "=> greedy all pathways should be stored currently!\n";
-    
+    croak "some special case not covered yet!\n" unless $plen > $max_plen;
+
+    my @path = @pseq;
     for (my $i=0; $i<=$#path; ++$i) {
       my $c = $path[$i];
       my @i = split '', $iupack{$c};
@@ -800,10 +795,9 @@ sub make_pathseq {
 
       $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
     }
-  } else {
-    die "some special case not covered yet!\n";
+    return @path;
   }
-  return @path;
+  return;
 }
 
 =head2 eval_sequence()
