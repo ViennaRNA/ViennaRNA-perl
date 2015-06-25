@@ -472,7 +472,10 @@ sub update_constraint {
 =head2 enumerate_pathways()
 
 For a given constrained depencendy path, calculate the number of sequences
-fulfilling that constraint. 
+fulfilling that constraint. If it is a constrained path, exhaustivley enumerate
+and store the solution-tree in a hash. If it is constrained and too long for 
+exhaustive enumeration, estimate the solutions with the fibronacci numbers and
+then (in make_pathseq()) shuffle them with a greedy heuristic.
 
 =cut
 
@@ -485,6 +488,7 @@ sub enumerate_pathways {
   my $plen = length $pstr;
 
   croak "cycles must have even length" if $cycle && $plen%2;
+  warn "first call update_constraint(), then enumerate_pathways()!" if ($pstr =~ m/[N]/g) && ($pstr =~ m/[^N]/g);
 
   my %solutions = %{$self->{solution_space}};
   my $max_plen  = $self->{max_const_plen};
@@ -494,7 +498,7 @@ sub enumerate_pathways {
 
   if (exists $solutions{$pstr.$cycle}) {
     return scalar($solutions{$pstr.$cycle}->get_leaves);
-  } elsif ($pstr !~ m/[^N]/g) { 
+  } elsif ($pstr =~ m/[N]/g) { 
     # its a path with all N's => (fibronacci: switch.pl)
     my $l = ($cycle) ? $plen-1 : $plen;
     return 2*($self->get_fibo($plen+1) + $self->get_fibo($l));
@@ -674,9 +678,7 @@ sub optimize_sequence {
 =head2 mutate_seq()
 
 Choose a random cycle, mutate it using make_pathseq of the sequence constraint.
-
-TODO: that could result in the same sequence as before, which is inefficient!
-Rewrite such that it choses randomly according to the number of solutions!
+TODO: Rewrite such that it choses randomly according to the number of solutions!
 
 =cut
 
@@ -779,7 +781,7 @@ sub make_pathseq {
     return @seq;
   } else {
     # do a greedy constraint shuffling!
-    croak "some special case not covered yet!\n" unless $plen > $max_plen;
+    croak "some special case not covered yet! (@pseq)" unless $plen > $max_plen;
 
     my @path = @pseq;
     for (my $i=0; $i<=$#path; ++$i) {

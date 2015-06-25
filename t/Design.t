@@ -24,7 +24,7 @@ subtest 'RNA::Design -- Default Options' => sub {
 };
 
 subtest 'RNA::Design -- Internal Functions' => sub {
-  plan tests => 15;
+  plan tests => 16;
   my ($nuc1, $nuc2) = ('R', 'N');
   is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 1, 'rewrite_neighbor() - change');
   is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 0, 'rewrite_neighbor() - constant');
@@ -35,51 +35,38 @@ subtest 'RNA::Design -- Internal Functions' => sub {
   is_deeply ([$ViennaDesign->update_constraint($cycle = 1, @path)], \@outp, 'update_constraint() - cycle');
   is_deeply ([$ViennaDesign->update_constraint($cycle = 0, @path)], \@outp, 'update_constraint() - path');
 
-  # TODO: test these:
-  is ($ViennaDesign->enumerate_pathways($cycle = 0, @path),
-    $ViennaDesign->enumerate_pathways($cycle = 0, @outp), 'enumerate_pathways() - no overcounting');
-
   is ($ViennaDesign->enumerate_pathways($cycle = 0, @outp), 15, 'enumerate_pathways() - path_long');
   is ($ViennaDesign->enumerate_pathways($cycle = 1, @outp), 13, 'enumerate_pathways() - cycle_long');
 
-  is ($ViennaDesign->enumerate_pathways($cycle = 0, ('A','N','N','N')), 3, 'enum_pathways() - path');
-  is ($ViennaDesign->enumerate_pathways($cycle = 1, ('A','N','N','N')), 2, 'enum_pathways() - cycle');
-  #is ($ViennaDesign->enumerate_pathways($cycle = 1, ('A','N','N','N')), 2, 'enum_pathways() - cycle');
+  # TODO: test these:
+  #
+  #is ($ViennaDesign->enumerate_pathways($cycle = 0, @path),
+  #  $ViennaDesign->enumerate_pathways($cycle = 0, @outp), 'enumerate_pathways() - no overcounting');
 
-  #@path =     ('N','N','N','N','N','N','N','N');
+  @path = ('A','N','N','N');
+  @outp = ('A','U','R','Y');
+  is_deeply ([$ViennaDesign->update_constraint($cycle = 0, @path)], \@outp, 'update_constraint() - path');
+  is ($ViennaDesign->enumerate_pathways($cycle = 0, @outp), 3, 'enum_pathways() - path');
+  @outp = ('A','U','R','U');
+  is_deeply ([$ViennaDesign->update_constraint($cycle = 1, @path)], \@outp, 'update_constraint() - cycle');
+  is ($ViennaDesign->enumerate_pathways($cycle = 1, @outp), 2, 'enum_pathways() - cycle');
+
   @path =     ('N','N','N','N','G','N');
   push @path, ('N','N','R','N','N','N');
   push @path, ('N','N','N','N','N','N');
   #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','N','N','N','N');
-  #push @path, ('N','N','N','N','N','N');
  
   @path = $ViennaDesign->update_constraint($cycle = 0, @path);
   my $count = $ViennaDesign->enumerate_pathways($cycle = 0, @path);
-  print "@path $count\n";
-
+  #print "@path $count\n";
+  
   # check if pathways are drawn with even probability
-  #my %resp;
-  #for my $r (0..10000) {
-  #  my $tmp = join '', $ViennaDesign->make_pathseq($cycle = 0, @path);
-  #  $resp{$tmp}++;
-  #}
-  #print "$_: $resp{$_}\n" foreach sort keys %resp;
-
-  @path = @outp;
-
-  # my $count;
-  # $count = $ViennaDesign->enumerate_pathways($cycle = 0, @path);
-  # #$count = $ViennaDesign->enumerate_pathways($cycle = 1, @path);
-  # print "$count @path\n";
-
-  # # check if pathways are drawn with even probability
   # my %resp;
-  # for my $r (0..100) {
-  #   my $tmp = join '', $ViennaDesign->make_pathseq($cycle = 1, @path);
+  # for my $r (0..10000) {
+  #   my $tmp = join '', $ViennaDesign->make_pathseq($cycle = 0, @path);
   #   $resp{$tmp}++;
   # }
-  # print "$_: $resp{$_}\n" foreach keys %resp;
+  # print "$_: $resp{$_}\n" foreach sort keys %resp;
 
   # for my $r (0..20) {
   #   srand ($r);
@@ -87,6 +74,7 @@ subtest 'RNA::Design -- Internal Functions' => sub {
   #   print "$r: @tmp\n";
   # }
 
+  @path = ('Y','R','Y','G','C','G','Y','R');
   @outp = ('C','G','C','G','C','G','U','A');
   srand(1); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
   @outp = ('C','G','C','G','C','G','U','G');
@@ -99,7 +87,6 @@ subtest 'RNA::Design -- Internal Functions' => sub {
   @outp = ('U','A','U','G','C','G','U','G');
   srand(18); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
   srand(11); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
-
 };
 
 
