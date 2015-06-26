@@ -67,8 +67,9 @@ sub new {
     verb  => 0,
 
     structures  => [],
+    cut_point   => -1,
     constraint  => '',
-    optfunc     => 'eos(1)+eos(2) - 2*gfe() + 0.3*(eos(1)-eos(2)+0.00)**2',
+    optfunc     => 'eos(1)+eos(2) - 2*efe() + 0.3*(eos(1)-eos(2)+0.00)**2',
 
     base => ({
         'A' => 0,
@@ -246,13 +247,28 @@ Get and Set stuff
 
   sub add_structures {
     my $self = shift;
-    push @{$self->{structures}}, @_;
+    foreach (@_) {
+      croak "only dot-bracket strings allowed in add_structures()" if $_ =~ m/[^\(\)\.]/g; 
+      push @{$self->{structures}}, $_;
+    }
     return $self->{structures};
   }
 
   sub get_structures {
     my $self = shift;
     return $self->{structures};
+  }
+
+  sub set_cut_point {
+    my ($self, $var) = @_;
+    carp "overwriting old cut_point" if $self->{cut_point} != -1;
+    $self->{cut_point} = $var;
+    return $self->{cut_point};
+  }
+
+  sub get_cut_point {
+    my $self = shift;
+    return $self->{cut_point};
   }
 
   sub fill_fibo {
@@ -853,7 +869,8 @@ sub eval_sequence {
 
   my %results;
   $RNA::fold_constrained=1;
-  foreach my $func (qw/eos eos_circ pfc pfc_circ gfe gfe_circ prob prob_circ/) {
+  $RNA::cut_point=$self->{cut_point};
+  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
       $results{$&} = eval "\$self->$func(\$seq, $1)" unless exists $results{$&};
@@ -861,6 +878,7 @@ sub eval_sequence {
       $ofun =~ s/$func\(([0-9\,\s]*)\)/ $results{$&} /;
     }
   }
+  $RNA::cut_point=-1;
   $RNA::fold_constrained=0;
 
   warn $ofun."\n" if $verb > 1;
@@ -878,8 +896,17 @@ sub base_avoid {
   my $penalty=1;
 
   my @avoid = @{$self->{avoid}};
-  foreach my $string (@avoid) {
-    $penalty *= $pen while ($seq =~ m/$string/g);
+  my $cpnt = $self->{cut_point};
+
+  if ($cpnt == -1) {
+    foreach my $string (@avoid) {
+      $penalty *= $pen while ($seq =~ m/$string/g);
+    }
+  } else {
+    foreach my $string (@avoid) {
+      $penalty *= $pen while (substr($seq,0,$cpnt-1) =~ m/$string/g);
+      $penalty *= $pen while (substr($seq,$cpnt) =~ m/$string/g);
+    }
   }
   return $penalty;
 }
@@ -906,30 +933,38 @@ sub base_prob {
 
 sub prob {
   my ($self, $seq, $i, $j, $t) = @_;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
-  croak "cannot find structure number $j" unless $self->{structures}[$j-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-
   my $kT=0.6163207755;
+
+  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  croak "cannot find structure number $j" if $i && !$self->{structures}[$j-1];
+
   my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
   my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
-  my $tmp;
 
-  $tmp=$s_i; my $dGi = RNA::pf_fold($seq, $tmp);
-  $tmp=$s_j; my $dGj = RNA::pf_fold($seq, $tmp);
+  my ($dGi, $dGj, $tmp);
+  if ($RNA::cut_point == -1) {
+    $tmp=$s_i; $dGi = RNA::pf_fold($seq, $tmp);
+    $tmp=$s_j; $dGj = RNA::pf_fold($seq, $tmp);
+  } else {
+    $tmp=$s_i; $dGi = RNA::co_pf_fold($seq, $tmp);
+    $tmp=$s_j; $dGj = RNA::co_pf_fold($seq, $tmp);
+  }
 
   return exp(($dGj-$dGi)/$kT);
 }
 
 sub prob_circ {
   my ($self, $seq, $i, $j, $t) = @_;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
-  croak "cannot find structure number $j" unless $self->{structures}[$j-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-
   my $kT=0.6163207755;
+
+  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  croak "cannot find structure number $j" if $j && !$self->{structures}[$j-1];
+  carp "ignoring cut_point for circular costfunction" if ($RNA::cut_point != -1);
+
   my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
   my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
   my $tmp;
@@ -942,58 +977,51 @@ sub prob_circ {
 
 sub eos {
   my ($self, $seq, $i, $t) = @_;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   my $str = $self->{structures}[$i-1];
   return RNA::energy_of_struct($seq, $str);
 }
 
 sub eos_circ {
   my ($self, $seq, $i, $t) = @_;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   my $str = $self->{structures}[$i-1];
   return RNA::energy_of_circ_struct($seq, $str);
 }
 
-sub pfc {
+sub efe {
   my ($self, $seq, $i, $t) = @_;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  my $str = $self->{structures}[$i-1];
+  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+
+  my $str = ($i) ? $self->{structures}[$i-1] : undef;
   # seemingly useless string modification
   # to avoid ViennaRNA SWIG interface bugs
-  $str.='.'; $str=substr($str,0,-1);
-  return RNA::pf_fold($seq, $str);
+  if ($str) {
+    $str.='.'; $str=substr($str,0,-1);
+  }
+  return ($RNA::cut_point == -1) ? RNA::pf_fold($seq, $str) : RNA::co_pf_fold($seq, $str);
 }
 
-sub pfc_circ {
+sub efe_circ {
   my ($self, $seq, $i, $t) = @_;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  my $str = $self->{structures}[$i-1];
+  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  carp "ignoring cut_point for circular costfunction" if ($RNA::cut_point != -1);
+
+  my $str = ($i) ? $self->{structures}[$i-1] : undef;
   # seemingly useless string modification
   # to avoid ViennaRNA SWIG interface bugs
-  $str.='.'; $str=substr($str,0,-1);
+  if ($str) {
+    $str.='.'; $str=substr($str,0,-1);
+  }
   return RNA::pf_circ_fold($seq, $str);
-}
-
-sub gfe {
-  my ($self, $seq, $t) = @_;
-  $t = 37 unless defined $t;
-  $RNA::temperature=$t;
-  return RNA::pf_fold($seq, undef);
-}
-
-sub gfe_circ {
-  my ($self, $seq, $t) = @_;
-  $t = 37 unless defined $t;
-  $RNA::temperature=$t;
-  return RNA::pf_circ_fold($seq, undef);
 }
 
 1;
