@@ -4,6 +4,7 @@ use warnings;
 use RNA;
 use RNA::Utils;
 use Carp;
+use Data::Dumper;
 
 use Exporter;
 
@@ -59,6 +60,7 @@ sub new {
     border=> 0,
     nos   => undef,
     plist => [],
+    rlist => [],
     avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
     avoid_penalty => 5,
     base_probs  => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
@@ -82,6 +84,11 @@ sub new {
       [0,1,0,1], # G
       [1,0,1,0]  # U
     ],
+
+    max_const_plen => 20,
+    solution_space => ({
+
+      }),
 
     iupack => ({
       'A' => 'A',
@@ -315,7 +322,7 @@ sub find_dependency_paths {
     }
   }
 
-  # ZERO-Based
+  # Construct a list of depencency-pathways (ZERO-Based)
   for my $i (1..$#pt1) {
     next if $seen[$i];
 
@@ -358,7 +365,8 @@ This function needs to be called to initialize the subsequent sequence design. I
 the previously computed dependency graph to (i) update the sequence constraint, (ii)
 caclulate the total number of sequences able to fulfill sequence and structure 
 constraints, (iii) set a stop-condition for sequence design dependent on the number
-of possible mutation-moves.
+of possible mutation-moves, (iv) reduces the pathlist to a *slim* pathlist that only
+contains mutateable elements.
 
 =cut
 
@@ -366,16 +374,16 @@ sub explore_sequence_space {
   my $self = shift;
   my $verb = 0;
 
-  my @plist=@{$self->{plist}};
-  my $con  = $self->{constraint};
-
-  my %iupack   = %{$self->{iupack}};
+  my @plist =@{$self->{plist}};
+  my $con   =  $self->{constraint};
+  my %iupack=%{$self->{iupack}};
 
   croak "need to comupute depencendy pathways first!" unless @plist;
   croak "need constraint infromation!" unless $con;
 
   my ($border, $max_len, $nos) = (0,0,1);
   my @slim_plist;
+  my @rand_plist = (0);
   foreach my $path (@plist) {
     my @pseq=();
     my $cycle=0;
@@ -403,21 +411,35 @@ sub explore_sequence_space {
     }
 
     if ($num > 1) {
-      push @slim_plist, $path;
+      push @slim_plist, $path;# for (1 .. $num);
+      push @rand_plist, $rand_plist[-1]+$num;
       $border += $num;
       $nos    *= $num;
     }
 
-    print "@$path => @pseq | Num: $num\n" if 0;
+    #print "@$path => @pseq | Num: $num\n" if 1;
     substr($con, $path->[$_], 1, $pseq[$_]) for (0 .. $#pseq);
   }
+  shift @rand_plist;
+  #print "@rand_plist\n";
+  #print "SLP: ".@slim_plist." => $border\n";
+  #print "$rand_plist[$_] => @{$slim_plist[$_]}\n" foreach (0 .. $#slim_plist);
+  #print "@{$slim_plist[$_]}\n" foreach (0 .. $#slim_plist);
 
   $self->{plist}=\@slim_plist;
+  $self->{rlist}=\@rand_plist;
   $self->{constraint}=$con;
   $self->{border}=$border unless $self->{border};
   $self->{nos}=$nos;
   return ($con, $border, $nos);
 }
+
+=head2 update_constraint()
+
+Rewrite the constraint for a particular dependency path, such that starting an
+arbitrary position would result in a correct path: "NNNRNNN" => "YRYRYRY";
+
+=cut
 
 sub update_constraint {
   my $self = shift;
@@ -455,51 +477,119 @@ sub update_constraint {
   return @pseq;
 }
 
+=head2 enumerate_pathways()
+
+For a given constrained depencendy path, calculate the number of sequences
+fulfilling that constraint. If it is a constrained path, exhaustivley enumerate
+and store the solution-tree in a hash. If it is constrained and too long for 
+exhaustive enumeration, estimate the solutions with the fibronacci numbers and
+then (in make_pathseq()) shuffle them with a greedy heuristic.
+
+=cut
+
 sub enumerate_pathways {
   my $self = shift;
   my $cycle= shift;
   my @pseq = @_;
 
-  my %iupack = %{$self->{iupack}};
-  my %base   = %{$self->{base}};
-  my @pair   = @{$self->{pair}};
+  my $pstr = join '', @pseq;
+  my $plen = length $pstr;
 
-  my @first = map {$_=$base{$_}} (split //, $iupack{$pseq[0]});
+  croak "cycles must have even length" if $cycle && $plen%2;
+  croak "first call update_constraint(), then enumerate_pathways()!" if ($pstr =~ m/[N]/g) && ($pstr =~ m/[^N]/g);
 
-  my @leaves=@first;
+  my %solutions = %{$self->{solution_space}};
+  my $max_plen  = $self->{max_const_plen};
+  my %iupack    = %{$self->{iupack}};
+  my %base      = %{$self->{base}};
+  my @pair      = @{$self->{pair}};
+
+  if (exists $solutions{$pstr.$cycle}) {
+    return scalar($solutions{$pstr.$cycle}->get_leaves);
+  } elsif ($pstr =~ m/[N]/g) { 
+    # its a path with all N's => (fibronacci: switch.pl)
+    my $l = ($cycle) ? $plen-1 : $plen;
+    return 2*($self->get_fibo($plen+1) + $self->get_fibo($l));
+  } 
+  # enable this as soon as fair sampling in this case works!
+  # elsif ($pstr !~ m/[^RY]/g) {
+  #   # its a path with all RY's
+  #   my $l = ($cycle) ? $plen-1 : $plen;
+  #   return ($self->get_fibo($plen+1) + $self->get_fibo($l));
+  # } 
+  #
+  elsif ($plen > $max_plen) { 
+    # path too long to enumerate with constraints
+    carp "constrained path too long, fallback to greedy heuristic!";
+    my $l = ($cycle) ? $plen-1 : $plen;
+    return ($self->get_fibo($plen+1) + $self->get_fibo($l));
+    # calculate RYRYR as NNNN/2 and use greedy-shuffle
+
+    # compute the theoretical sequence length (n) to construct an 
+    # example that breaks plen: n = (plen-1)*4 + 1 
+    # so for plen=26 => n=101
+    # if we assume a helix has 4 base-pairs, it is:
+    # n = (plen-1)*12 + 1 = 301
+  }
+
+  my $tree = RNA::Design::Tree->new();
+  my @le = $tree->get_leaves;
+  $tree->init_new_leaves;
+  foreach (split //, $iupack{$pseq[0]}) {
+    $tree->push_to_current_leaves($_, $le[0]);
+  }
+  
   for my $i (1 .. $#pseq) {
-    my @choices = map {$_=$base{$_}} (split //, $iupack{$pseq[$i]});
-    my @next_leaves=();
+    my @choices = split //, $iupack{$pseq[$i]};
+    my @leaves  = $tree->get_leaves;
+    $tree->init_new_leaves;
 
-    # in case we have a cycle
     if ($i == $#pseq && $cycle) {
       foreach my $l (@leaves) {
         foreach my $c (@choices) {
-          if ($self->{pair}->[$l][$c]) {
-            # only add the leave if it also pairs with the first row!
-            foreach my $f (@first) {
-              if ($self->{pair}->[$f][$c]) {
-                push @next_leaves, $c;
-                last;
-              }
+          if ($pair[$base{$$l[0]}][$base{$c}]) {
+            # check if $c also pairs with anything in the first row!
+            my $string = $tree->get_full_path($l);
+            my $f = substr $string, 0, 1;
+            if ($pair[$base{$c}][$base{$f}]) {
+              $tree->push_to_current_leaves($c, $l);
             }
+
           }
         }
       }
     } else {
-      foreach my $l (@leaves) {
-        foreach my $c (@choices) {
-          push @next_leaves, $c if $self->{pair}->[$l][$c];
+      foreach my $c (@choices) {
+        foreach my $l (@leaves) {
+          if ($pair[$base{$$l[0]}][$base{$c}]) {
+            $tree->push_to_current_leaves($c, $l);
+          }
         }
       }
     }
-    #print "@next_leaves\n";
-    @leaves = @next_leaves;
   }
 
-  return scalar(@leaves);
+  #DEBUG:
+  #print $pstr.$cycle."\n";
+  #foreach ($tree->get_leaves) {
+  #  print $tree->get_full_path($_)."\n";
+  #}
+  
+  $self->{solution_space}->{$pstr.$cycle} = $tree;
+  return scalar($tree->get_leaves);
+}
+
+sub fill_solution_space {
+
 }
  
+=head2 rewrite_neighbor()
+
+Takes a letter and a reference to the neighbor. Rewrites the neighbor and 
+returns 0 or 1 if there exists a neighbor or not.
+
+=cut
+
 sub rewrite_neighbor {
   my ($self, $c1, $c2) = @_;
   print "$c1 -> $$c2\n" if 0;
@@ -524,8 +614,6 @@ sub rewrite_neighbor {
 =head2 find_a_sequence()
 
 Uses the dependency graph and the sequence constraint to make a random sequence. 
-
-TODO: The random-sequence should already include the information of get_probs().
 
 =cut
 
@@ -589,7 +677,7 @@ sub optimize_sequence {
     }
     else {
       $seen{$mutseq}++;
-      last if (++$reject >= $border);
+      last if (++$reject >= 2*$border);
     }
   }
   return $refseq;
@@ -598,8 +686,8 @@ sub optimize_sequence {
 =head2 mutate_seq()
 
 Choose a random cycle, mutate it using make_pathseq of the sequence constraint.
-
-TODO: that could result in the same sequence as before, which is inefficient!
+Choses randomly according to the number of solutions, but can be done more efficiently
+in n*log(n) time!
 
 =cut
 
@@ -609,18 +697,43 @@ sub mutate_seq {
 
   my $con   = $self->{constraint};
   my @plist = @{$self->{plist}};
+  my @rlist = @{$self->{rlist}};
 
-  my ($path, @pseq);
+  my $reject_same_solution=1;
+
+  my ($path, @pseq, @ref_pseq);
   my $cycle = 0;
 
-  $path = $plist[int rand @plist];
+  # chose a random path => weight by number of solutions to make it fair!
+  my $rand = (int rand $rlist[-1]) + 1;
+  for (my $i=0; $i<=$#plist; ++$i) {
+    if ($rand <= $rlist[$i]) {
+      $path = \@{$plist[$i]};
+      last;
+    }
+  }
+
+  # this would be random independent of the pathlength!
+  #$path = $plist[int rand @plist];
+  #print "@$path\n";
 
   $cycle = 1 if ($$path[0] eq $$path[-1] && (@$path>1));
 
   my $l = ($cycle) ? $#$path-1 : $#$path;
   push @pseq, substr($con, $$path[$_], 1) for (0 .. $l);
 
-  @pseq = $self->make_pathseq($cycle, @pseq);
+  if ($reject_same_solution) {
+    push @ref_pseq, substr($seq, $$path[$_], 1) for (0 .. $l);
+    my @npseq;
+    my $jailbreak = 0;
+    do {
+      @npseq = $self->make_pathseq($cycle, @pseq);
+      die if ++$jailbreak > 100;
+    } while (join('', @ref_pseq) eq join('', @npseq));
+    @pseq = @npseq;
+  } else {
+    @pseq = $self->make_pathseq($cycle, @pseq);
+  }
 
   substr($seq, $$path[$_], 1, $pseq[$_]) for (0 .. $#pseq);
   return $seq;
@@ -628,7 +741,12 @@ sub mutate_seq {
 
 =head2 make_pathseq()
 
-Takes an Array of IUPACK code and randomly rewrites it into a valid array of Nucleotides
+Takes an Array of IUPACK code and rewrites it into a valid array of Nucleotides. There
+are four cases: (i) path of length 1 is a randomly shuffled nucleotide accoriding to 
+iupack-letter, (ii) The solution-tree has been built before and so we save some work,
+(iii) the sequence is only N's, so fibronacci is used (i.e. switch.pl method), and
+(iv) the path is constrained and longer than *max_const_plen* so the solution space
+is counted by fibronacci and paths are shuffled with a greedy heuristic.
 
 =cut
 
@@ -637,24 +755,84 @@ sub make_pathseq {
   my $cycle= shift;
   my @pseq = @_; 
 
-  my @path;
+  my $pstr = join '', @pseq;
+  my $plen = length $pstr;
 
-  my %iupack   = %{$self->{iupack}};
+  croak "cycles must have even length" if $cycle && $plen%2;
 
-  for (my $i=0; $i<=$#pseq; ++$i) {
-    my $c = $pseq[$i];
-    my @i = (split '', $iupack{$c});
-    $pseq[$i] = $i[int rand @i];
+  my %iupack    = %{$self->{iupack}};
+  my %iupack_bin= %{$self->{iupack_bin}};
+  my %solutions = %{$self->{solution_space}};
+  my $max_plen  =   $self->{max_const_plen};
 
-    if ($i==0 && $cycle) {
-      my ($a, $j) = ($pseq[$i], -1);
-      $a=$pseq[$j--] while $self->rewrite_neighbor($a, \$pseq[$j]);
+  if ($plen == 1) {
+    # if path length 1 => return random iupack
+    my @i = split '', $iupack{$pstr};
+    return ($i[int rand @i]);
+  } elsif (exists $solutions{$pstr.$cycle}) {
+    my $tree = $solutions{$pstr.$cycle};
+    my @i = $tree->get_leaves;
+    return (split '', $tree->get_full_path($i[int rand @i]));
+  } elsif ($pstr !~ m/[^N]/g) { 
+    # its a path with all N's => do it like switch.pl
+    
+    #TODO: need to implement this method for RY-pathways as well
+    
+    # This is original switch.pl code that I don't understand!
+    my $l = $plen;
+    my $ll = ($cycle) ? $l-1 : $l;
+    my $n = 2*($self->get_fibo($l+1) + $self->get_fibo($ll));
+
+    my $rand = rand($n);
+
+    my @seq = ();
+    # set first base in sequence
+    if ($rand < $self->get_fibo($ll)) {
+      push @seq, 'A', 'U';
+    } elsif ($rand < 2*$self->get_fibo($ll)) {
+      push @seq, 'C', 'G'; 
+      $rand -= $self->get_fibo($ll);
+    } else {
+      $rand -= 2*$self->get_fibo($ll); 
+      $ll=$l;
+      push @seq, ($rand>=$self->get_fibo($l+1))?'U':'G';
+      $rand -= $self->get_fibo($l+1) if $rand >= $self->get_fibo($l+1);
     }
 
-    $self->rewrite_neighbor($pseq[$i], \$pseq[$i+1]) if $i < $#pseq;
-  }
+    # grow sequence to length $l
+    # if we have a cycle starting with A or C $ll=$l-1, else $ll=$l
+    while (@seq < $l) {
+      if ($rand < $self->get_fibo($ll-@seq)) {
+        push @seq, 'C','G' if ($seq[-1] eq 'G');
+        push @seq, 'A','U' if ($seq[-1] eq 'U');
+      } else {
+        $rand -= $self->get_fibo($ll-@seq);
+        push @seq, ($seq[-1] eq 'G') ? 'U' : 'G';
+      }
+    }
+    pop @seq if (@seq > $l); # in case we've added one base too many
+    return @seq;
+  } else {
+    # do a greedy constraint shuffling!
+    croak "some special case not covered yet! (@pseq)" unless $plen > $max_plen;
 
-  return @pseq;
+    my @path = @pseq;
+    for (my $i=0; $i<=$#path; ++$i) {
+      my $c = $path[$i];
+      my @i = split '', $iupack{$c};
+
+      $path[$i] = $i[int rand @i];
+
+      if ($i==0 && $cycle) {
+        my ($a, $j) = ($path[$i], -1);
+        $a=$path[$j--] while $self->rewrite_neighbor($a, \$path[$j]);
+      }
+
+      $self->rewrite_neighbor($path[$i], \$path[$i+1]) if $i < $#path;
+    }
+    return @path;
+  }
+  return;
 }
 
 =head2 eval_sequence()
@@ -670,7 +848,8 @@ sub eval_sequence {
   my $verb = $self->{verb};
   my $ofun = $self->{optfunc};
   my $apen = $self->{avoid_penalty};
-  warn $ofun."\n" if $verb > 1;
+  warn "$seq\n".$ofun."\n" if $verb > 1;
+  croak "no structures specified!\n" unless @{$self->{structures}};
 
   my %results;
   $RNA::fold_constrained=1;
@@ -678,6 +857,7 @@ sub eval_sequence {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
       $results{$&} = eval "\$self->$func(\$seq, $1)" unless exists $results{$&};
+      croak $@ if $@;
       $ofun =~ s/$func\(([0-9\,\s]*)\)/ $results{$&} /;
     }
   }
@@ -685,7 +865,7 @@ sub eval_sequence {
 
   warn $ofun."\n" if $verb > 1;
   my $r = eval $ofun;
-  warn $@ if $@;
+  croak $@ if $@;
 
   my $p = $self->base_prob($seq);
   my $a = $self->base_avoid($seq, $apen);
@@ -726,6 +906,8 @@ sub base_prob {
 
 sub prob {
   my ($self, $seq, $i, $j, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
+  croak "cannot find structure number $j" unless $self->{structures}[$j-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
 
@@ -742,6 +924,8 @@ sub prob {
 
 sub prob_circ {
   my ($self, $seq, $i, $j, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
+  croak "cannot find structure number $j" unless $self->{structures}[$j-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
 
@@ -758,40 +942,40 @@ sub prob_circ {
 
 sub eos {
   my ($self, $seq, $i, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $str = $self->{structures}[$i-1];
-  croak "Could not find ".$i."th structure\n" unless $str;
   return RNA::energy_of_struct($seq, $str);
 }
 
 sub eos_circ {
   my ($self, $seq, $i, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $str = $self->{structures}[$i-1];
-  croak "Could not find ".$i."th structure\n" unless $str;
   return RNA::energy_of_circ_struct($seq, $str);
 }
 
 sub pfc {
   my ($self, $seq, $i, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $str = $self->{structures}[$i-1];
   # seemingly useless string modification
   # to avoid ViennaRNA SWIG interface bugs
   $str.='.'; $str=substr($str,0,-1);
-  croak "Could not find ".$i."th structure\n" unless $str;
   return RNA::pf_fold($seq, $str);
 }
 
 sub pfc_circ {
   my ($self, $seq, $i, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $str = $self->{structures}[$i-1];
-  croak "Could not find ".$i."th structure\n" unless $str;
   # seemingly useless string modification
   # to avoid ViennaRNA SWIG interface bugs
   $str.='.'; $str=substr($str,0,-1);
@@ -813,3 +997,67 @@ sub gfe_circ {
 }
 
 1;
+
+package RNA::Design::Tree;
+
+use strict;
+use warnings;
+use Data::Dumper;
+
+sub new {
+  my $class = shift;
+  my $self  = {
+    tree => [
+      [
+        ['root', undef]
+      ]
+    ],
+  };
+
+  bless $self, $class;
+  return $self;
+}
+
+sub init_new_leaves {
+  my $self = shift;
+  push @{$self->{tree}}, [];
+  return $self->{tree};
+}
+
+sub push_to_current_leaves {
+  my $self = shift;
+  my ($string, $parent) = @_;
+
+  my $tree = $self->{tree};
+  my $leaves = $$tree[-1];
+
+  push @$leaves, [$string, $parent];
+  
+  return $self->{tree};
+}
+
+sub get_leaves {
+  my $self = shift;
+  return @{${$self->{tree}}[-1]};
+}
+
+sub get_first {
+  my $self = shift;
+  return @{${$self->{tree}}[1]};
+}
+
+sub get_full_path {
+  my $self  = shift;
+  my $leave = shift;
+
+  my $string;
+  my ($char, $ref) = @$leave;
+  while ($char ne 'root') {
+    $string .= $char;
+    ($char, $ref) = @$ref;
+  }
+  return reverse $string;
+}
+
+1;
+
