@@ -60,6 +60,7 @@ sub new {
     border=> 0,
     nos   => undef,
     plist => [],
+    rlist => [],
     avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
     avoid_penalty => 5,
     base_probs  => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
@@ -373,16 +374,16 @@ sub explore_sequence_space {
   my $self = shift;
   my $verb = 0;
 
-  my @plist=@{$self->{plist}};
-  my $con  = $self->{constraint};
-
-  my %iupack   = %{$self->{iupack}};
+  my @plist =@{$self->{plist}};
+  my $con   =  $self->{constraint};
+  my %iupack=%{$self->{iupack}};
 
   croak "need to comupute depencendy pathways first!" unless @plist;
   croak "need constraint infromation!" unless $con;
 
   my ($border, $max_len, $nos) = (0,0,1);
   my @slim_plist;
+  my @rand_plist = (0);
   foreach my $path (@plist) {
     my @pseq=();
     my $cycle=0;
@@ -410,16 +411,23 @@ sub explore_sequence_space {
     }
 
     if ($num > 1) {
-      push @slim_plist, $path; # for (1 .. $num);
+      push @slim_plist, $path;# for (1 .. $num);
+      push @rand_plist, $rand_plist[-1]+$num;
       $border += $num;
       $nos    *= $num;
     }
 
-    print "@$path => @pseq | Num: $num\n" if 0;
+    #print "@$path => @pseq | Num: $num\n" if 1;
     substr($con, $path->[$_], 1, $pseq[$_]) for (0 .. $#pseq);
   }
+  shift @rand_plist;
+  #print "@rand_plist\n";
+  #print "SLP: ".@slim_plist." => $border\n";
+  #print "$rand_plist[$_] => @{$slim_plist[$_]}\n" foreach (0 .. $#slim_plist);
+  #print "@{$slim_plist[$_]}\n" foreach (0 .. $#slim_plist);
 
   $self->{plist}=\@slim_plist;
+  $self->{rlist}=\@rand_plist;
   $self->{constraint}=$con;
   $self->{border}=$border unless $self->{border};
   $self->{nos}=$nos;
@@ -488,7 +496,7 @@ sub enumerate_pathways {
   my $plen = length $pstr;
 
   croak "cycles must have even length" if $cycle && $plen%2;
-  warn "first call update_constraint(), then enumerate_pathways()!" if ($pstr =~ m/[N]/g) && ($pstr =~ m/[^N]/g);
+  croak "first call update_constraint(), then enumerate_pathways()!" if ($pstr =~ m/[N]/g) && ($pstr =~ m/[^N]/g);
 
   my %solutions = %{$self->{solution_space}};
   my $max_plen  = $self->{max_const_plen};
@@ -669,7 +677,7 @@ sub optimize_sequence {
     }
     else {
       $seen{$mutseq}++;
-      last if (++$reject >= $border);
+      last if (++$reject >= 2*$border);
     }
   }
   return $refseq;
@@ -678,7 +686,8 @@ sub optimize_sequence {
 =head2 mutate_seq()
 
 Choose a random cycle, mutate it using make_pathseq of the sequence constraint.
-TODO: Rewrite such that it choses randomly according to the number of solutions!
+Choses randomly according to the number of solutions, but can be done more efficiently
+in n*log(n) time!
 
 =cut
 
@@ -688,19 +697,43 @@ sub mutate_seq {
 
   my $con   = $self->{constraint};
   my @plist = @{$self->{plist}};
+  my @rlist = @{$self->{rlist}};
 
-  my ($path, @pseq);
+  my $reject_same_solution=1;
+
+  my ($path, @pseq, @ref_pseq);
   my $cycle = 0;
 
   # chose a random path => weight by number of solutions to make it fair!
-  $path = $plist[int rand @plist];
+  my $rand = (int rand $rlist[-1]) + 1;
+  for (my $i=0; $i<=$#plist; ++$i) {
+    if ($rand <= $rlist[$i]) {
+      $path = \@{$plist[$i]};
+      last;
+    }
+  }
+
+  # this would be random independent of the pathlength!
+  #$path = $plist[int rand @plist];
+  #print "@$path\n";
 
   $cycle = 1 if ($$path[0] eq $$path[-1] && (@$path>1));
 
   my $l = ($cycle) ? $#$path-1 : $#$path;
   push @pseq, substr($con, $$path[$_], 1) for (0 .. $l);
 
-  @pseq = $self->make_pathseq($cycle, @pseq);
+  if ($reject_same_solution) {
+    push @ref_pseq, substr($seq, $$path[$_], 1) for (0 .. $l);
+    my @npseq;
+    my $jailbreak = 0;
+    do {
+      @npseq = $self->make_pathseq($cycle, @pseq);
+      die if ++$jailbreak > 100;
+    } while (join('', @ref_pseq) eq join('', @npseq));
+    @pseq = @npseq;
+  } else {
+    @pseq = $self->make_pathseq($cycle, @pseq);
+  }
 
   substr($seq, $$path[$_], 1, $pseq[$_]) for (0 .. $#pseq);
   return $seq;
@@ -815,7 +848,8 @@ sub eval_sequence {
   my $verb = $self->{verb};
   my $ofun = $self->{optfunc};
   my $apen = $self->{avoid_penalty};
-  warn $ofun."\n" if $verb > 1;
+  warn "$seq\n".$ofun."\n" if $verb > 1;
+  croak "no structures specified!\n" unless @{$self->{structures}};
 
   my %results;
   $RNA::fold_constrained=1;
@@ -823,6 +857,7 @@ sub eval_sequence {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
       $results{$&} = eval "\$self->$func(\$seq, $1)" unless exists $results{$&};
+      croak $@ if $@;
       $ofun =~ s/$func\(([0-9\,\s]*)\)/ $results{$&} /;
     }
   }
@@ -830,7 +865,7 @@ sub eval_sequence {
 
   warn $ofun."\n" if $verb > 1;
   my $r = eval $ofun;
-  warn $@ if $@;
+  croak $@ if $@;
 
   my $p = $self->base_prob($seq);
   my $a = $self->base_avoid($seq, $apen);
@@ -871,6 +906,8 @@ sub base_prob {
 
 sub prob {
   my ($self, $seq, $i, $j, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
+  croak "cannot find structure number $j" unless $self->{structures}[$j-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
 
@@ -887,6 +924,8 @@ sub prob {
 
 sub prob_circ {
   my ($self, $seq, $i, $j, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
+  croak "cannot find structure number $j" unless $self->{structures}[$j-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
 
@@ -903,40 +942,40 @@ sub prob_circ {
 
 sub eos {
   my ($self, $seq, $i, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $str = $self->{structures}[$i-1];
-  croak "Could not find ".$i."th structure\n" unless $str;
   return RNA::energy_of_struct($seq, $str);
 }
 
 sub eos_circ {
   my ($self, $seq, $i, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $str = $self->{structures}[$i-1];
-  croak "Could not find ".$i."th structure\n" unless $str;
   return RNA::energy_of_circ_struct($seq, $str);
 }
 
 sub pfc {
   my ($self, $seq, $i, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $str = $self->{structures}[$i-1];
   # seemingly useless string modification
   # to avoid ViennaRNA SWIG interface bugs
   $str.='.'; $str=substr($str,0,-1);
-  croak "Could not find ".$i."th structure\n" unless $str;
   return RNA::pf_fold($seq, $str);
 }
 
 sub pfc_circ {
   my ($self, $seq, $i, $t) = @_;
+  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $str = $self->{structures}[$i-1];
-  croak "Could not find ".$i."th structure\n" unless $str;
   # seemingly useless string modification
   # to avoid ViennaRNA SWIG interface bugs
   $str.='.'; $str=substr($str,0,-1);
