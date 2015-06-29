@@ -18,7 +18,7 @@ isa_ok($ViennaDesign, 'RNA::Design', 'Object initialized');
 # Check default Options
 subtest 'RNA::Design -- Default Options' => sub {
   plan tests => 3;
-  is ($ViennaDesign->get_verb, 0, 'get_verb()');
+  is ($ViennaDesign->get_verbosity, 0, 'get_verbosity()');
   is ($ViennaDesign->get_constraint, '', 'get_constraint()');
   is (ref $ViennaDesign->get_structures, "ARRAY", 'get_structures()');
 };
@@ -128,7 +128,7 @@ print "done testing\n";
 
 print "\n*Start with full example!*\n";
 
-$ViennaDesign->set_verb(1);
+$ViennaDesign->set_verbosity(1);
 my @tstructs = (
   '.(...)((...)).(...)',
   '.(...((.(...)))...)',
