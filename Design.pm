@@ -536,7 +536,7 @@ sub explore_sequence_space {
   return ($con, $border, $nos);
 }
 
-=head3 update_constraint()
+=head3 update_constraint($is_cycle, @path)
 
 Rewrite the constraint for a particular dependency path, such that starting an
 arbitrary position would result in a correct path: "NNNRNNN" => "YRYRYRY";
@@ -579,7 +579,7 @@ sub update_constraint {
   return @pseq;
 }
 
-=head3 enumerate_pathways()
+=head3 enumerate_pathways($is_cycle, @path)
 
 For a given depencendy path, calculate the number of compatible sequences, and
 initialze data-structures for C<make_pathseq()>. If it is an unconstrained
@@ -686,7 +686,7 @@ sub fill_solution_space {
 
 }
  
-=head3 rewrite_neighbor()
+=head3 rewrite_neighbor($iupac, \$iupac)
 
 Takes a IUPAC letter and a reference to a base-pairing IUPAC letter. Updates
 the IUPAC code if necessary and returns 0 or 1 if there exists a neighbor or
@@ -788,7 +788,7 @@ sub optimize_sequence {
   return $refseq;
 }
 
-=head3 mutate_seq()
+=head3 mutate_seq($sequence)
 
 Choose a random depencency path, mutate it using make_pathseq() of the sequence
 constraint. Choses randomly according to the number of solutions, but can be
@@ -844,7 +844,7 @@ sub mutate_seq {
   return $seq;
 }
 
-=head3 make_pathseq()
+=head3 make_pathseq($is_cycle, @path)
 
 Takes an Array of IUPAC code and rewrites it into a valid array of Nucleotides.
 There are four cases: (i) path of length 1 is a randomly shuffled nucleotide
@@ -941,7 +941,7 @@ sub make_pathseq {
   return;
 }
 
-=head2 eval_sequence()
+=head2 eval_sequence($sequence)
 
 Evaluate a given sequence according to the cost function.
 
