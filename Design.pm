@@ -91,7 +91,7 @@ sub new {
 
       }),
 
-    iupack => ({
+    iupac => ({
       'A' => 'A',
       'C' => 'C',
       'G' => 'G',
@@ -126,7 +126,7 @@ sub new {
       'B' => 'N',   # 0111 => 1111 
       'N' => 'N',   # 1111 => 1111 
     }),
-    iupack_bin => ({# ACGU
+    iupac_bin => ({ # ACGU
       'A' => 8,     # 1000,
       'C' => 4,     # 0100,
       'G' => 2,     # 0010,
@@ -144,7 +144,7 @@ sub new {
       'B' => 7,     # 0111,  # not A
       'N' => 15,    # 1111,
     }),
-    bin_iupack => [ # ACGU
+    bin_iupac => [  # ACGU
       '',           # 0000  0 
       'U',          # 0001  1 
       'G',          # 0010  2
@@ -392,7 +392,7 @@ sub explore_sequence_space {
 
   my @plist =@{$self->{plist}};
   my $con   =  $self->{constraint};
-  my %iupack=%{$self->{iupack}};
+  my %iupac =%{$self->{iupac}};
 
   croak "need to comupute depencendy pathways first!" unless @plist;
   croak "need constraint infromation!" unless $con;
@@ -411,7 +411,7 @@ sub explore_sequence_space {
       $pseq[0] = substr($con, $path->[0], 1);
 
       # Statistics (bos, border)
-      $num  = length $iupack{$pseq[0]};
+      $num  = length $iupac{$pseq[0]};
     } else {
       $cycle=1 if ($path->[0] eq $path->[-1]);
 
@@ -516,7 +516,7 @@ sub enumerate_pathways {
 
   my %solutions = %{$self->{solution_space}};
   my $max_plen  = $self->{max_const_plen};
-  my %iupack    = %{$self->{iupack}};
+  my %iupac     = %{$self->{iupac}};
   my %base      = %{$self->{base}};
   my @pair      = @{$self->{pair}};
 
@@ -551,12 +551,12 @@ sub enumerate_pathways {
   my $tree = RNA::Design::Tree->new();
   my @le = $tree->get_leaves;
   $tree->init_new_leaves;
-  foreach (split //, $iupack{$pseq[0]}) {
+  foreach (split //, $iupac{$pseq[0]}) {
     $tree->push_to_current_leaves($_, $le[0]);
   }
   
   for my $i (1 .. $#pseq) {
-    my @choices = split //, $iupack{$pseq[$i]};
+    my @choices = split //, $iupac{$pseq[$i]};
     my @leaves  = $tree->get_leaves;
     $tree->init_new_leaves;
 
@@ -614,10 +614,10 @@ sub rewrite_neighbor {
   if ($nb eq $$c2) {
     return 0;
   } else {
-    my $bin_c2 = $self->{iupack_bin}{$$c2};
-    my $bin_nb = $self->{iupack_bin}{$nb};
+    my $bin_c2 = $self->{iupac_bin}{$$c2};
+    my $bin_nb = $self->{iupac_bin}{$nb};
 
-    my $new_nb = $self->{bin_iupack}[($bin_c2 & $bin_nb)];
+    my $new_nb = $self->{bin_iupac}[($bin_c2 & $bin_nb)];
     croak "sequence constraints cannot be fulfilled\n" unless $new_nb;
 
     return 0 if $new_nb eq $$c2;
@@ -757,9 +757,9 @@ sub mutate_seq {
 
 =head2 make_pathseq()
 
-Takes an Array of IUPACK code and rewrites it into a valid array of Nucleotides. There
+Takes an Array of iupac code and rewrites it into a valid array of Nucleotides. There
 are four cases: (i) path of length 1 is a randomly shuffled nucleotide accoriding to 
-iupack-letter, (ii) The solution-tree has been built before and so we save some work,
+iupac-letter, (ii) The solution-tree has been built before and so we save some work,
 (iii) the sequence is only N's, so fibronacci is used (i.e. switch.pl method), and
 (iv) the path is constrained and longer than *max_const_plen* so the solution space
 is counted by fibronacci and paths are shuffled with a greedy heuristic.
@@ -776,14 +776,14 @@ sub make_pathseq {
 
   croak "cycles must have even length" if $cycle && $plen%2;
 
-  my %iupack    = %{$self->{iupack}};
-  my %iupack_bin= %{$self->{iupack_bin}};
+  my %iupac     = %{$self->{iupac}};
+  my %iupac_bin = %{$self->{iupac_bin}};
   my %solutions = %{$self->{solution_space}};
   my $max_plen  =   $self->{max_const_plen};
 
   if ($plen == 1) {
-    # if path length 1 => return random iupack
-    my @i = split '', $iupack{$pstr};
+    # if path length 1 => return random iupac
+    my @i = split '', $iupac{$pstr};
     return ($i[int rand @i]);
   } elsif (exists $solutions{$pstr.$cycle}) {
     my $tree = $solutions{$pstr.$cycle};
@@ -835,7 +835,7 @@ sub make_pathseq {
     my @path = @pseq;
     for (my $i=0; $i<=$#path; ++$i) {
       my $c = $path[$i];
-      my @i = split '', $iupack{$c};
+      my @i = split '', $iupac{$c};
 
       $path[$i] = $i[int rand @i];
 
