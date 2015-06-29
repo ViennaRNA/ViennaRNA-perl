@@ -19,19 +19,21 @@ Stefan Badelt (stef@tbi.univie.ac.at)
 
 =head1 NAME
 
-RNA::Design -- plug-and-play design of nucleic acid sequences
+B<RNA::Design> -- plug-and-play design of nucleic acid sequences
 
 =head1 DESCRIPTION
 
 This package provides various subroutines to design RNA molecules optimized for
-single or multiple conformations. The properties of the RNA sequence have to be
-specified in the Main Object: $Design = RNA::Design->new(). Currently, this package
-supports every structure constraint that can be specified by two separate
-well-formed dot-bracket strings. Sequence optimization functions can be composed of
-the energies of input structures 'eos(s)', the ensemble-free-energy 'gfe()',
-the free energy of a constrained ensemble 'pfc(s)' and conditional probabilites
-of certain structures 'prob(s1,s2)'. All of these functions exist for linear
-and circular sequences and they allow to specify a temperature.
+single or multiple conformations. The properties of the target molecules have
+to be specified in the Main Object: C<$Design = RNA::Design-E<gt>new()>.
+B<RNA::Design> supports structure constraints that can be specified by two
+well-formed dot-bracket strings. Additional base-pairs specified as input will
+be ignored and produce a warning. Sequence optimization functions can be
+composed of the sub-functions: C<eos(i,t)> (energy of structure), C<efe(i,t)>
+(ensemble free energy), and C<prob(i,j,t)> (probability of structure), where
+C<i> and C<j> stand for the number of the input-structure and C<t> allows the 
+user to specify a temperature. All of these functions exist for circular sequences 
+by attatching a C<_circ> flag (for example C<eos_circ(i,t)>.
 
 Additionally, cost-functions are multiplied with a term that corrects for specified 
 base-probabilities (see set_prob()) and penalties for particular subsequences that 
@@ -55,7 +57,6 @@ description of public functions.
 sub new {
   my $class = shift;
   my $self = {
-    #cutp  => -1,
     fibo  => [0,1],
     border=> 0,
     nos   => undef,
@@ -63,7 +64,7 @@ sub new {
     rlist => [],
     avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
     avoid_penalty => 5,
-    base_probs  => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
+    base_probs    => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
     verb  => 0,
 
     structures  => [],
@@ -172,127 +173,195 @@ sub new {
 
 =head2 get/set parameters
 
-Get and Set stuff
+Get and Set parameters for sequence design. For every C<set> routine, there
+exists the equivalent C<get> routine. 
 
 =cut
 
+=head3 set_verbosity(<INT>)
 
-{ # get/set routines
-  sub set_verb {
-    my ($self, $var) = @_;
-    $self->{verb}=$var;
-    return $self->{verb};
-  }
+set the verboisty of warnings to STDERR.
 
-  sub get_verb {
-    my $self = shift;
-    return $self->{verb};
-  }
+=cut 
 
-  sub set_optfunc {
-    my ($self, $var) = @_;
-    $self->{optfunc} = $var;
-    return $self->{optfunc};
-  }
-
-  sub get_optfunc {
-    my $self = shift;
-    return $self->{optfunc};
-  }
-
-  sub set_constraint {
-    my ($self, $var) = @_;
-    carp "overwriting old constraint" if $self->{constraint};
-    $self->{constraint} = $var;
-    return $self->{constraint};
-  }
-
-  sub get_constraint {
-    my $self = shift;
-    return $self->{constraint};
-  }
-
-  sub set_avoid {
-    my $self = shift;
-    $self->{avoid} = [@_];
-    return $self->{avoid};
-  }
-
-  sub get_avoid {
-    my $self = shift;
-    return $self->{avoid};
-  }
-
-  sub set_avoid_penalty {
-    my ($self, $var) = @_;
-    $self->{avoid_penalty} = $var;
-    return $self->{avoid_penalty};
-  }
-
-  sub get_avoid_penalty {
-    my $self = shift;
-    return $self->{avoid_penalty};
-  }
-
-  sub set_base_probs {
-    my ($self, $var) = @_;
-    $self->{base_probs} = $var;
-    return $self->{base_probs};
-  }
-
-  sub get_base_probs {
-    my $self = shift;
-    return $self->{base_probs};
-  }
-
-  sub add_structures {
-    my $self = shift;
-    foreach (@_) {
-      croak "only dot-bracket strings allowed in add_structures()" if $_ =~ m/[^\(\)\.]/g; 
-      push @{$self->{structures}}, $_;
-    }
-    return $self->{structures};
-  }
-
-  sub get_structures {
-    my $self = shift;
-    return $self->{structures};
-  }
-
-  sub set_cut_point {
-    my ($self, $var) = @_;
-    carp "overwriting old cut_point" if $self->{cut_point} != -1;
-    $self->{cut_point} = $var;
-    return $self->{cut_point};
-  }
-
-  sub get_cut_point {
-    my $self = shift;
-    return $self->{cut_point};
-  }
-
-  sub fill_fibo {
-    my ($self, $var) = @_;
-    while ($#{$self->{fibo}} < $var) {
-      push @{$self->{fibo}}, $self->{fibo}->[-1] + $self->{fibo}->[-2];
-    }
-    return $self->{fibo};
-  }
-
-  sub get_fibo {
-    my ($self, $var) = @_;
-    $self->fill_fibo($var) unless defined $self->{fibo}[$var];
-    return $self->{fibo}[$var];
-  }
+sub set_verbosity {
+  my ($self, $var) = @_;
+  $self->{verb}=$var;
+  return $self->{verb};
 }
 
-=head2 find_dependency_paths(@s)
+sub get_verbosity {
+  my $self = shift;
+  return $self->{verb};
+}
 
-If @s is empty, it will make the dependency graph from all structures added
-with the add_structures() routine. In some cases the user may not want all the
-structures in the cost function to be part of the dependency graph, therfore
-@structures can be specified to select for those that shall define the
-dependencies. 
+=head3 set_optfunc(<STRING>)
+
+set the cost-function for sequence optimization.
+
+=cut
+
+sub set_optfunc {
+  my ($self, $var) = @_;
+  $self->{optfunc} = $var;
+  return $self->{optfunc};
+}
+
+sub get_optfunc {
+  my $self = shift;
+  return $self->{optfunc};
+}
+
+=head3 set_constraint(<STRING>)
+
+set the sequence constraints for sequence optimization.
+
+=cut
+
+sub set_constraint {
+  my ($self, $var) = @_;
+  $self->{constraint} = $var;
+  return $self->{constraint};
+}
+
+sub get_constraint {
+  my $self = shift;
+  return $self->{constraint};
+}
+
+=head3 set_avoid_motifs(<ARRAY>)
+
+set a list of sequence motifs that will cause a penalty during optimization.
+
+=cut
+
+sub set_avoid_motifs {
+  my $self = shift;
+  $self->{avoid} = [@_];
+  return $self->{avoid};
+}
+
+sub get_avoid_motifs {
+  my $self = shift;
+  return $self->{avoid};
+}
+
+=head3 set_avoid_penalty(<INT>)
+
+set the penalty for sequence motifs specified with C<set_avoid_motifs()>
+
+=cut
+
+sub set_avoid_penalty {
+  my ($self, $var) = @_;
+  $self->{avoid_penalty} = $var;
+  return $self->{avoid_penalty};
+}
+
+sub get_avoid_penalty {
+  my $self = shift;
+  return $self->{avoid_penalty};
+}
+
+=head3 set_base_probs(<HASH>)
+
+set the penalty for sequence motifs specified with C<set_avoid_motifs()>
+
+=cut
+
+sub set_base_probs {
+  my ($self, $var) = @_;
+  $self->{base_probs} = $var;
+  return $self->{base_probs};
+}
+
+sub get_base_probs {
+  my $self = shift;
+  return $self->{base_probs};
+}
+
+=head3 set_structures(<ARRAY>)
+
+set the list of structures for sequence optimization
+
+=cut
+
+sub set_structures {
+  my $self = shift;
+  my @structs = @_;
+  if ($self->{verb}) {
+    foreach (@structs) {
+      croak "only dot-bracket strings allowed in add_structures()" if m/[^\(\)\.]/g; 
+    }
+  }
+  $self->{structures} = [@structs];
+  return $self->{structures};
+}
+
+sub add_structures {
+  my $self = shift;
+  foreach (@_) {
+    if ($self->{verb} && m/[^\(\)\.]/g) { 
+      croak "only dot-bracket strings allowed in add_structures()";
+    }
+    push @{$self->{structures}}, $_;
+  }
+  return $self->{structures};
+}
+
+sub get_structures {
+  my $self = shift;
+  return $self->{structures};
+}
+
+=head3 set_cut_point(<INT>)
+
+set a cut_point when designing two interacting molecules. The cut point
+indicates the first nucleotide of the second sequence.
+
+=cut
+
+sub set_cut_point {
+  my ($self, $var) = @_;
+  if ($self->{verb} && $self->{cut_point} != -1 && $self->{cut_point} != $var) {
+    carp "overwriting old cut_point";
+  }
+  $self->{cut_point} = $var;
+  return $self->{cut_point};
+}
+
+sub get_cut_point {
+  my $self = shift;
+  return $self->{cut_point};
+}
+
+=head3 get_fibo(<INT>)
+
+get the fibronaccy number at position <INT>. The list starts with [0,1] at 
+positions 0,1. Note that there is no C<set> routine for fibonacci.
+
+=cut
+
+sub get_fibo {
+  my ($self, $var) = @_;
+  $self->fill_fibo($var) unless defined $self->{fibo}[$var];
+  return $self->{fibo}[$var];
+}
+
+sub fill_fibo {
+  my ($self, $var) = @_;
+  while ($#{$self->{fibo}} < $var) {
+    push @{$self->{fibo}}, $self->{fibo}->[-1] + $self->{fibo}->[-2];
+  }
+  return $self->{fibo};
+}
+
+=head2 find_dependency_paths(@structures)
+
+If @structures is empty, the mutation dependency graph is constructed from all
+structures added with the set_structures() routine. Specify @structures only if
+you do not want all of your structures for the cost-function to be part of the
+depencency graph.
 
 =cut
 
@@ -377,12 +446,29 @@ sub find_dependency_paths {
 
 =head2 explore_sequence_space()
 
-This function needs to be called to initialize the subsequent sequence design. It reads
-the previously computed dependency graph to (i) update the sequence constraint, (ii)
-caclulate the total number of sequences able to fulfill sequence and structure 
-constraints, (iii) set a stop-condition for sequence design dependent on the number
-of possible mutation-moves, (iv) reduces the pathlist to a *slim* pathlist that only
-contains mutateable elements.
+This function initializes internal paramters for subsequent sequence
+optimization. It reads the previously computed dependency graph to 
+
+=over 
+
+=item 1. 
+
+update and check the sequence constraint 
+  
+=item 2.
+
+caclulate the total number of sequences compatible with all constraints
+  
+=item 3.
+
+set a stop-condition for optimization from the number of possible mutations
+  
+=item 4.
+
+store the number of possible solutions per depencendy-path for subsequent fair
+sampling.
+
+=back
 
 =cut
 
@@ -428,7 +514,7 @@ sub explore_sequence_space {
 
     if ($num > 1) {
       push @slim_plist, $path;# for (1 .. $num);
-      push @rand_plist, $rand_plist[-1]+$num;
+      push @rand_plist, $rand_plist[-1]+($num-1);
       $border += $num;
       $nos    *= $num;
     }
@@ -450,7 +536,7 @@ sub explore_sequence_space {
   return ($con, $border, $nos);
 }
 
-=head2 update_constraint()
+=head3 update_constraint()
 
 Rewrite the constraint for a particular dependency path, such that starting an
 arbitrary position would result in a correct path: "NNNRNNN" => "YRYRYRY";
@@ -493,13 +579,14 @@ sub update_constraint {
   return @pseq;
 }
 
-=head2 enumerate_pathways()
+=head3 enumerate_pathways()
 
-For a given constrained depencendy path, calculate the number of sequences
-fulfilling that constraint. If it is a constrained path, exhaustivley enumerate
-and store the solution-tree in a hash. If it is constrained and too long for 
-exhaustive enumeration, estimate the solutions with the fibronacci numbers and
-then (in make_pathseq()) shuffle them with a greedy heuristic.
+For a given depencendy path, calculate the number of compatible sequences, and
+initialze data-structures for C<make_pathseq()>. If it is an unconstrained
+path, use the fibronacci numbers to enumerate pathways. If it is a constrained
+path, exhaustivley count and store the solutions in a tree structure. If the
+path is constrained and longer than C<max_const_plen>, estimate the number of
+pathways with the fibronacci numbers.
 
 =cut
 
@@ -599,10 +686,11 @@ sub fill_solution_space {
 
 }
  
-=head2 rewrite_neighbor()
+=head3 rewrite_neighbor()
 
-Takes a letter and a reference to the neighbor. Rewrites the neighbor and 
-returns 0 or 1 if there exists a neighbor or not.
+Takes a IUPAC letter and a reference to a base-pairing IUPAC letter. Updates
+the IUPAC code if necessary and returns 0 or 1 if there exists a neighbor or
+not.
 
 =cut
 
@@ -662,8 +750,9 @@ sub find_a_sequence {
 =head2 optimize_sequence(sequence, maximum_number_of_mutations)
 
 The standard optimization function. Whenever a sequence mutation results in a
-better score, it replaces the current solution. In case there are too many 
-useless mutations, (see explore_sequence_space()), the current sequence is returned.
+better score from the cost-function, replaces the current solution. In case
+there are too many useless mutations, (see explore_sequence_space()), the
+current sequence is considered local-optimal and returned.
 
 =cut
 
@@ -699,11 +788,11 @@ sub optimize_sequence {
   return $refseq;
 }
 
-=head2 mutate_seq()
+=head3 mutate_seq()
 
-Choose a random cycle, mutate it using make_pathseq of the sequence constraint.
-Choses randomly according to the number of solutions, but can be done more efficiently
-in n*log(n) time!
+Choose a random depencency path, mutate it using make_pathseq() of the sequence
+constraint. Choses randomly according to the number of solutions, but can be
+implemented more efficiently in C<log(n)> time!
 
 =cut
 
@@ -755,14 +844,15 @@ sub mutate_seq {
   return $seq;
 }
 
-=head2 make_pathseq()
+=head3 make_pathseq()
 
-Takes an Array of iupac code and rewrites it into a valid array of Nucleotides. There
-are four cases: (i) path of length 1 is a randomly shuffled nucleotide accoriding to 
-iupac-letter, (ii) The solution-tree has been built before and so we save some work,
-(iii) the sequence is only N's, so fibronacci is used (i.e. switch.pl method), and
-(iv) the path is constrained and longer than *max_const_plen* so the solution space
-is counted by fibronacci and paths are shuffled with a greedy heuristic.
+Takes an Array of IUPAC code and rewrites it into a valid array of Nucleotides.
+There are four cases: (i) path of length 1 is a randomly shuffled nucleotide
+accoriding to IUPAC-letter, (ii) The solution-tree has been built during
+explore_sequence_space() and so we use it to sample, (iii) the sequence is only
+N's, so the fibronacci numbers are used for sampling (i.e. the switch.pl
+method), and (iv) the path is constrained and longer than C<max_const_plen>, so
+the paths are sampled using a greedy heuristic.
 
 =cut
 
@@ -853,7 +943,7 @@ sub make_pathseq {
 
 =head2 eval_sequence()
 
-Evaluate a given sequence according to your cost function.
+Evaluate a given sequence according to the cost function.
 
 =cut
 
