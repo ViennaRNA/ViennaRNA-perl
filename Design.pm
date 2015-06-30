@@ -810,6 +810,7 @@ sub mutate_seq {
   my $cycle = 0;
 
   # chose a random path => weight by number of solutions to make it fair!
+  return $seq unless defined $rlist[-1];
   my $rand = (int rand $rlist[-1]) + 1;
   for (my $i=0; $i<=$#plist; ++$i) {
     if ($rand <= $rlist[$i]) {
@@ -833,7 +834,7 @@ sub mutate_seq {
     my $jailbreak = 0;
     do {
       @npseq = $self->make_pathseq($cycle, @pseq);
-      die if ++$jailbreak > 100;
+      last if ++$jailbreak > 100;
     } while (join('', @ref_pseq) eq join('', @npseq));
     @pseq = @npseq;
   } else {
