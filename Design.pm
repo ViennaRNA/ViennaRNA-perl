@@ -963,8 +963,16 @@ sub eval_sequence {
   foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
-      $results{$&} = eval "\$self->$func(\$seq, $1)" unless exists $results{$&};
-      croak $@ if $@;
+
+      if (exists $results{$&}) {
+        #print "OR: $& => $results{$&}\n";
+      } else {
+        my $res = eval("\$self->$func(\$seq, $1)");
+        $res = sprintf "%.2f", $res;
+        croak $@ if $@;
+        #print "NR: $& => $res\n";
+        $results{$&}=$res;
+      }
       $ofun =~ s/$func\(([0-9\,\s]*)\)/ $results{$&} /;
     }
   }
@@ -993,9 +1001,12 @@ sub base_avoid {
       $penalty *= $pen while ($seq =~ m/$string/g);
     }
   } else {
+    my $left  = substr $seq, 0, $cpnt-1;
+    my $right = substr $seq, $cpnt-1;
+    #print "$left&$right\n";
     foreach my $string (@avoid) {
-      $penalty *= $pen while (substr($seq,0,$cpnt-1) =~ m/$string/g);
-      $penalty *= $pen while (substr($seq,$cpnt) =~ m/$string/g);
+      $penalty *= $pen while ($left   =~ m/$string/g);
+      $penalty *= $pen while ($right  =~ m/$string/g);
     }
   }
   return $penalty;
