@@ -335,6 +335,29 @@ sub get_cut_point {
   return $self->{cut_point};
 }
 
+=head3 get_num_of_seqs()
+
+get the number of sequences after calling explore_sequence_space()
+
+=cut
+
+sub get_num_of_seqs {
+  my $self = shift;
+  return $self->{nos};
+}
+
+=head3 get_num_of_nbors()
+
+get the number of neighbors of a sequence after calling explore_sequence_space()
+
+=cut
+
+sub get_num_of_nbors {
+  my $self = shift;
+  return $self->{border};
+}
+
+
 =head3 get_fibo(<INT>)
 
 get the fibronaccy number at position <INT>. The list starts with [0,1] at 
@@ -527,6 +550,8 @@ sub explore_sequence_space {
   #print "SLP: ".@slim_plist." => $border\n";
   #print "$rand_plist[$_] => @{$slim_plist[$_]}\n" foreach (0 .. $#slim_plist);
   #print "@{$slim_plist[$_]}\n" foreach (0 .. $#slim_plist);
+  
+  print "$nos Number of sequences, $border neighbors for each sequence.\n" if $self->{verb};
 
   $self->{plist}=\@slim_plist;
   $self->{rlist}=\@rand_plist;
