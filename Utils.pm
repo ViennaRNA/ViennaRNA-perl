@@ -80,17 +80,18 @@ sub make_pair_table {
    $hx=0;
    $i=1;
    $table[0] = length($str);
+
    foreach $c (split(//,$str)) {
-      if ($c eq '.') {
-         $table[$i]= 0;
-      } elsif ($c eq '(') {
+      if ($c eq '(') {
          $olist[$hx++]=$i;
       } elsif ($c eq ')') {
          $j = $olist[--$hx];
          die ("unbalanced brackets in make_pair_table") if ($hx<0);
          $table[$i]=$j;
          $table[$j]=$i;
-      }
+      } else { # ($c eq '.') {
+         $table[$i]=0;
+      } 
       $i++;
    }
    die ("too few closed brackets in make_pair_table") if ($hx!=0);
