@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 11;
+use Test::More tests => 12;
 
 # ****************************************** #
 # ~~~~~~~~~~ ALL INTERNAL MODULES ~~~~~~~~~~ #
@@ -97,6 +97,26 @@ is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependen
 @structs = ( '.(...)','.(...)');
 $plist = [[0],[1,5],[2],[3],[4]];
 is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- one bpair');
+
+@structs = (
+  #0....,....1....,....2....,....3',
+  '.(...)...(...)..',
+  '...(...)........',
+  '......(....)....',
+);
+$plist = [[0],[1,5],[2],[7,3],[4],[6,11],[8],[9,13],[10],[12],[14],[15]];
+is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- three knots');
+
+# @structs = (
+#   #0....,....1....,....2....,....3',
+#   '.(.....)...(...)',
+#   '...(...)........',
+#   '......(.....)...',
+#   '..(...).........',
+# );
+# $plist = [[0],[1,5],[2],[7,3],[4],[6,11],[8],[9,13],[10],[12],[14],[15]];
+# print "@$_\n" foreach @{$ViennaDesign->find_dependency_paths(@structs)};
+# is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- three knots');
 
 @structs = (
   #0....,....1....,....2....,....3',

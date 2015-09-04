@@ -65,6 +65,7 @@ sub new {
     avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
     avoid_penalty => 5,
     base_probs    => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
+    paramfile     => '',
     verb  => 0,
 
     structures  => [],
@@ -280,6 +281,23 @@ sub get_base_probs {
   return $self->{base_probs};
 }
 
+=head3 set_parameter_file(<STRING>)
+
+set a parameter file other than rna_turner2004.par
+
+=cut
+
+sub set_parameter_file {
+  my ($self, $var) = @_;
+  $self->{paramfile} = $var;
+  return $self->{paramfile};
+}
+
+sub get_parameter_file {
+  my $self = shift;
+  return $self->{paramfile};
+}
+
 =head3 set_structures(<ARRAY>)
 
 set the list of structures for sequence optimization
@@ -369,6 +387,7 @@ sub find_dependency_paths {
   my $self = shift;
   my @structures = @_;
   my (@pt1, @pt2, @lx1, @lx2, @seen);
+  my @pt3; # store pseudoknots, first come first serve
 
   if ($self->{plist}) {
     #carp "overwriting old dependency-path!\n";
@@ -384,6 +403,7 @@ sub find_dependency_paths {
     if ($s == 0) {
       @pt1 = @pt;
       @pt2 = (0) x @pt1;
+      @pt3 = (0) x @pt1;
     } else {
       @lx1 = RNA::Utils::make_loop_index_from_pt(@pt1);
       @lx2 = RNA::Utils::make_loop_index_from_pt(@pt2);
@@ -393,6 +413,7 @@ sub find_dependency_paths {
         # the base-pairs are in there already
         next if ($pt1[$i]==$j && $pt1[$j]==$i);
         next if ($pt2[$i]==$j && $pt2[$j]==$i);
+        next if ($pt3[$i]==$j && $pt3[$j]==$i);
         # new base-pairs:
         if ($lx1[$i]==$lx1[$j] && !$pt1[$i] && !$pt1[$j]) {
           $pt1[$i]=$pt[$i];
@@ -401,9 +422,25 @@ sub find_dependency_paths {
           $pt2[$i]=$pt[$i];
           $pt2[$j]=$pt[$j];
         } else {
-          carp "ignoring basepair $i - $j from structure ".($s+1);
+          # store all pseudoknots that don't share bases in a third pairtable
+          if (!$pt1[$i] && !$pt1[$j] && !$pt2[$i] && !$pt2[$j] && !$pt3[$i] && !$pt3[$j]) {
+            $pt3[$i]=$pt[$i];
+            $pt3[$j]=$pt[$j];
+          } else {
+            carp "ignoring basepair $i - $j from structure ".($s+1);
+          }
         }
       }
+    }
+  }
+
+  # TODO: check if in pt3 there are collitions now ...
+  for my $i (1 .. $#pt3) {
+    next unless $i < $pt3[$i]; # '('
+    my $j = $pt3[$i];
+    if ($pt1[$i] || $pt1[$j] || $pt2[$i] || $pt2[$j]) {
+      carp "dismiss $i - $j from pk-pathway";
+      $pt3[$i]=$pt3[$j]=0;
     }
   }
 
@@ -437,6 +474,13 @@ sub find_dependency_paths {
     if ($j) {
       croak "messed up cycle!" unless $j-1 == $path[-1];
       unshift @path, $j-1 unless @path == 2; # 2 => duplicate basepair
+    } else {
+      # Hack to include pseudoknots
+      $j = $pt3[$i];
+      if ($j && !$seen[$j]) {
+        push @path, $j-1;
+        $seen[$j]=1;
+      }
     }
 
     push @{$self->{plist}}, [@path];
@@ -955,12 +999,14 @@ sub eval_sequence {
   my $verb = $self->{verb};
   my $ofun = $self->{optfunc};
   my $apen = $self->{avoid_penalty};
+  my $ParamFile = $self->{paramfile};
   warn "$seq\n".$ofun."\n" if $verb > 1;
   croak "no structures specified!\n" unless @{$self->{structures}};
 
   my %results;
   $RNA::fold_constrained=1;
   $RNA::cut_point=$self->{cut_point};
+  RNA::read_parameter_file($ParamFile) if ($ParamFile);
   foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
@@ -983,6 +1029,7 @@ sub eval_sequence {
   warn $ofun."\n" if $verb > 1;
   my $r = eval $ofun;
   croak $@ if $@;
+  croak "Result of objective function ($r) must not became negative!" if ($r<0);
 
   my $p = $self->base_prob($seq);
   my $a = $self->base_avoid($seq, $apen);
