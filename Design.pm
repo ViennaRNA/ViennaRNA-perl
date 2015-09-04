@@ -386,8 +386,7 @@ depencency graph.
 sub find_dependency_paths {
   my $self = shift;
   my @structures = @_;
-  my (@pt1, @pt2, @lx1, @lx2, @seen);
-  my @pt3; # store pseudoknots, first come first serve
+  my (@pts, @seen);
 
   if ($self->{plist}) {
     #carp "overwriting old dependency-path!\n";
@@ -397,91 +396,89 @@ sub find_dependency_paths {
   @structures = @{$self->{structures}} unless @structures;
   croak "no structure input found" unless @structures;
 
-  # Merge all strucutes into two pairtables and complain if not possible!
+  my @check;
   for (my $s=0; $s<@structures; ++$s) {
-    my @pt = @{RNA::Utils::make_pair_table($structures[$s])};
-    if ($s == 0) {
-      @pt1 = @pt;
-      @pt2 = (0) x @pt1;
-      @pt3 = (0) x @pt1;
-    } else {
-      @lx1 = RNA::Utils::make_loop_index_from_pt(@pt1);
-      @lx2 = RNA::Utils::make_loop_index_from_pt(@pt2);
-      for my $i (1..$#pt) {
-        next unless $i < $pt[$i]; # '('
-        my $j = $pt[$i];
-        # the base-pairs are in there already
-        next if ($pt1[$i]==$j && $pt1[$j]==$i);
-        next if ($pt2[$i]==$j && $pt2[$j]==$i);
-        next if ($pt3[$i]==$j && $pt3[$j]==$i);
-        # new base-pairs:
-        if ($lx1[$i]==$lx1[$j] && !$pt1[$i] && !$pt1[$j]) {
-          $pt1[$i]=$pt[$i];
-          $pt1[$j]=$pt[$j];
-        } elsif ($lx2[$i]==$lx2[$j] && !$pt2[$i] && !$pt2[$j]) {
-          $pt2[$i]=$pt[$i];
-          $pt2[$j]=$pt[$j];
-        } else {
-          # store all pseudoknots that don't share bases in a third pairtable
-          if (!$pt1[$i] && !$pt1[$j] && !$pt2[$i] && !$pt2[$j] && !$pt3[$i] && !$pt3[$j]) {
-            $pt3[$i]=$pt[$i];
-            $pt3[$j]=$pt[$j];
-          } else {
-            carp "ignoring basepair $i - $j from structure ".($s+1);
-          }
-        }
+    my $struct = $structures[$s];
+
+    # discard if empty or too short!
+    next if $struct !~ m/[\(\)\[\]]/;
+
+    # change '[,]' to '(,)'
+    if ($struct =~ m/[\[]/) {
+      if ($struct =~ m/[\)]/) {
+        die "do not mix two different bracket types in one structure!\n";
+      } else {
+        $struct =~ s/\[/\(/g;
+        $struct =~ s/\]/\)/g;
       }
     }
-  }
 
-  # TODO: check if in pt3 there are collitions now ...
-  for my $i (1 .. $#pt3) {
-    next unless $i < $pt3[$i]; # '('
-    my $j = $pt3[$i];
-    if ($pt1[$i] || $pt1[$j] || $pt2[$i] || $pt2[$j]) {
-      carp "dismiss $i - $j from pk-pathway";
-      $pt3[$i]=$pt3[$j]=0;
+    # add, but warn if base-pairs are not compatible
+    my $pt = RNA::Utils::make_pair_table($struct);
+    for my $i (1 .. @$pt) {
+      next unless $$pt[$i];
+      my $j=$$pt[$i];
+      if (defined $check[$i]) {
+        my $new=1;
+        foreach (@{$check[$i]}) {
+          $new=0 if $_ == $j;
+        }
+        if ($new && @{$check[$i]} > 1) {
+          carp "ignoring basepair $i - $j from structure ".($s+1);
+          $$pt[$i]=$$pt[$j]=0;
+        } elsif ($new) {
+          push @{$check[$i]}, $j;
+        }
+      } else {
+        push @{$check[$i]}, $j;
+      }
     }
+    push @pts, $pt;
   }
 
   # Construct a list of depencency-pathways (ZERO-Based)
-  for my $i (1..$#pt1) {
+  for my $i (1..$#{$pts[0]}) {
     next if $seen[$i];
 
     # initialize path with $i
     my @path  = ($i-1);
     $seen[$i] = 1;
 
-    # expand @path to the right (push)
-    my ($pt, $j) = (1, $pt1[$i]);
-    while ($j && !$seen[$j]) {
-      push @path, $j-1;
-      $seen[$j]=1;
-      $j  = ($pt == 1) ? $pt2[$j] : $pt1[$j];
-      $pt = ($pt == 1) ? 2 : 1;
-    }
+    my $fw = 0;
+    my ($j,$cpt);
 
-    # expand @path to the left (unshift)
-    ($pt, $j) = (2, $pt2[$i]);
-    while ($j && !$seen[$j]) {
-      unshift @path, $j-1;
-      $seen[$j]=1;
-      $j  = ($pt == 1) ? $pt2[$j] : $pt1[$j];
-      $pt = ($pt == 1) ? 2 : 1;
+    # iterate over every pairtable at pos j
+    for my $pt (0 .. $#pts) {
+      $j  = $pts[$pt][$i];
+      $cpt= $pt;
+
+      $fw = !$fw if $j && !$seen[$j];
+      # found a base-pair? go for it 
+      while ($j && !$seen[$j]) {
+        if ($fw) {
+          push @path, $j-1;
+        } else {
+          unshift @path, $j-1;
+        }
+        $seen[$j]=1;
+        my $oj=$j;
+        for my $npt (0 .. $#pts) {
+          next if $npt == $cpt;
+          if ($pts[$npt]->[$j] > 0) {
+            $j  = $pts[$npt]->[$j];
+            $cpt= $npt; 
+            last;
+          }
+        }
+        $j = ($oj==$j) ? 0 : $j;
+      } # while $j and !seen
     }
 
     # duplicate element if we have a cycle 
     if ($j) {
       croak "messed up cycle!" unless $j-1 == $path[-1];
       unshift @path, $j-1 unless @path == 2; # 2 => duplicate basepair
-    } else {
-      # Hack to include pseudoknots
-      $j = $pt3[$i];
-      if ($j && !$seen[$j]) {
-        push @path, $j-1;
-        $seen[$j]=1;
-      }
-    }
+    } 
 
     push @{$self->{plist}}, [@path];
   }
@@ -1130,6 +1127,7 @@ sub eos {
   $RNA::temperature=$t;
   croak "cannot find structure number $i" unless $self->{structures}[$i-1];
   my $str = $self->{structures}[$i-1];
+  # ($str =~ m/[\(\)]/) ? k
   return RNA::energy_of_struct($seq, $str);
 }
 
