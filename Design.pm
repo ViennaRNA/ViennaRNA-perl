@@ -624,7 +624,7 @@ sub enumerate_pathways {
   my $plen = length $pstr;
 
   croak "cycles must have even length" if $cycle && $plen%2;
-  croak "first call update_constraint(), then enumerate_pathways()!" if ($pstr =~ m/[N]/g) && ($pstr =~ m/[^N]/g);
+  #croak "first call update_constraint(), then enumerate_pathways()!" if ($pstr =~ m/[N]/) && ($pstr =~ m/[^N]/);
 
   my %solutions = %{$self->{solution_space}};
   my $max_plen  = $self->{max_const_plen};
@@ -634,7 +634,7 @@ sub enumerate_pathways {
 
   if (exists $solutions{$pstr.$cycle}) {
     return scalar($solutions{$pstr.$cycle}->get_leaves);
-  } elsif ($pstr =~ m/[N]/g) { 
+  } elsif ($pstr =~ m/[N]/ && $pstr !~ m/[^N]/) { 
     # its a path with all N's => (fibronacci: switch.pl)
     my $l = ($cycle) ? $plen-1 : $plen;
     return 2*($self->get_fibo($plen+1) + $self->get_fibo($l));
@@ -1012,7 +1012,46 @@ sub eval_sequence {
   my $p = $self->base_prob($seq);
   my $a = $self->base_avoid($seq, $apen);
 
-  return $r*$p*$a;
+  my $d=1;
+  #$d = $self->cofold_defect2($seq) if (1 && $self->{cut_point} != -1);
+
+  return $r*$p*$a*$d;
+}
+
+sub cofold_defect2 {
+  my ($self, $seq) = @_;
+
+  my $cpnt = $self->{cut_point};
+  my $left  = substr $seq, 0, $cpnt-1;
+  my $right = substr $seq, $cpnt-1;
+
+  $RNA::cut_point = $cpnt = length($right)+1;
+  my ($costruct, $comfe) = RNA::cofold($right.$right);
+  substr $costruct, $cpnt-1,0,'&';
+  $RNA::cut_point = -1;
+  #print "$costruct, $comfe:\n";
+  return 1 if ($comfe >= 0);
+
+  my @chars = split '', $costruct;
+  my @stack;
+  my $DIM=0;
+  for my $i (0 .. $#chars) {
+    if ($chars[$i] eq '&') {
+      $DIM = (@stack) ? 1 : 0;
+      # got two monomers
+      last;
+    } elsif ($chars[$i] eq '.') {
+      next;
+    } elsif ($chars[$i] eq '(') {
+      push @stack, ($i);
+    } elsif ($chars[$i] eq ')') {
+      my $j = pop @stack;
+      if ($j < $cpnt && $cpnt < ($i)) {
+        $DIM=1; last;
+      }
+    }
+  }
+  return ($DIM) ? -$comfe : 1;
 }
 
 sub base_avoid {

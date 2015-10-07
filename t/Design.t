@@ -24,7 +24,7 @@ subtest 'RNA::Design -- Default Options' => sub {
 };
 
 subtest 'RNA::Design -- Internal Functions' => sub {
-  plan tests => 16;
+  plan tests => 19;
   my ($nuc1, $nuc2) = ('R', 'N');
   is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 1, 'rewrite_neighbor() - change');
   is ($ViennaDesign->rewrite_neighbor($nuc1, \$nuc2), 0, 'rewrite_neighbor() - constant');
@@ -59,6 +59,14 @@ subtest 'RNA::Design -- Internal Functions' => sub {
   @outp = ('U','A','U','G','C','G','U','G');
   srand(18); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - path');
   srand(11); is_deeply ([$ViennaDesign->make_pathseq($cycle = 1, @path)], \@outp, 'make_pathseq() - cycle');
+
+  @path = ('H','N','N');
+  @outp = ('H','D','N');
+  is_deeply ([$ViennaDesign->update_constraint($cycle = 0, @path)], \@outp, 'update_constraint() - HNN-case');
+  is ($ViennaDesign->enumerate_pathways($cycle = 0, @outp), 7, 'enum_pathways() - HDN');
+  @path = @outp;
+  @outp = ('A','U','A');
+  srand(1); is_deeply ([$ViennaDesign->make_pathseq($cycle = 0, @path)], \@outp, 'make_pathseq() - HDN');
 
   # Playground to test pathway-math
   @path =     ('N','N','N','N','G','N');
@@ -122,21 +130,29 @@ $ViennaDesign->set_constraint('GNNNNNNNNNNNNANNNUA');
 my @explore = ('GUNNNRUNYNNNRAUNNUA', 39, 589824);
 is_deeply([$ViennaDesign->explore_sequence_space()], \@explore, 'explore_sequence_space()');
 
-
-
 print "done testing\n";
 
 print "\n*Start with full example!*\n";
 
+# Test this:
+# (....).&....
+# (.(....&.)).  
+# NGNRANN&HHHH
+
 $ViennaDesign->set_verbosity(1);
+$ViennaDesign->set_cut_point(8);
 my @tstructs = (
-  '.(...)((...)).(...)',
-  '.(...((.(...)))...)',
+  '(....).....',
+  '(.(.....)).',
+# 'NGNRANNHHHH'
+#  '.(...)((...)).(...)',
+#  '.(...((.(...)))...)',
 #  '(...(........)...).',
 #  '(...)........(...).',
 );
 $ViennaDesign->add_structures(@tstructs);
-$ViennaDesign->set_constraint('NNNNNNNNNNNNNNNNNNN');
+#$ViennaDesign->set_constraint('NNNNNNNNNNNNNNNNNNN');
+$ViennaDesign->set_constraint('NGNRANNHHHH');
 $ViennaDesign->find_dependency_paths();
 $ViennaDesign->explore_sequence_space();
 my $seq = $ViennaDesign->find_a_sequence;
