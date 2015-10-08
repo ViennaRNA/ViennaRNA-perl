@@ -986,7 +986,7 @@ sub eval_sequence {
   my %results;
   $RNA::fold_constrained=1;
   $RNA::cut_point=$self->{cut_point};
-  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ/) {
+  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ barr/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
 
@@ -1016,6 +1016,34 @@ sub eval_sequence {
   #$d = $self->cofold_defect2($seq) if (1 && $self->{cut_point} != -1);
 
   return $r*$p*$a*$d;
+}
+
+sub barr {
+  my ($self, $seq, $i, $j, $t) = @_;
+  $t = 37 unless defined $t;
+  $RNA::temperature=$t;
+  my $kT=0.6163207755;
+
+  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  croak "cannot find structure number $j" if $i && !$self->{structures}[$j-1];
+
+  my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
+  my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
+
+  my $e_i = sprintf("%.2f", RNA::energy_of_structure($seq, $s_i, 0));
+  my $sE = RNA::find_saddle($seq, $s_i, $s_j, 10);
+
+  #DEBUG
+  #my $pathway = RNA::get_path($seq, $s_i, $s_j, 10);
+  #for (1 .. $pathway->size()-1) {
+  #  my $struct = $pathway->get($_)->{'s'};
+  #  my $energy= $pathway->get($_)->{'en'};
+  #  substr $struct, $RNA::cut_point, 0, '&' if $RNA::cut_point != -1;
+  #  printf "%s %6.2f\n", $struct, $energy;
+  #}
+  #print "barr: ".sprintf("%.2f", ($sE/100)-$e_i)."\n";
+  
+  return sprintf("%.2f", ($sE/100)-$e_i);
 }
 
 sub cofold_defect2 {
