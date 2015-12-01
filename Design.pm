@@ -1009,7 +1009,7 @@ sub eval_sequence {
   my $r = eval $ofun;
   croak $@ if $@;
 
-  my $p = $self->base_prob($seq);
+  my $p = $self->base_prob($seq, 1);
   my $a = $self->base_avoid($seq, $apen);
 
   my $d=1;
@@ -1106,7 +1106,8 @@ sub base_avoid {
 }
 
 sub base_prob {
-  my ($self, $seq) = @_;
+  my ($self, $seq, $pen) = @_;
+  return 1 unless $pen;
 
   my %prob = %{$self->{base_probs}};
   my %base;
@@ -1122,7 +1123,7 @@ sub base_prob {
       $cost *= $prob{$k}/$base{$k};
     }
   }
-  return $cost;
+  return $cost * $pen;
 }
 
 sub prob {
