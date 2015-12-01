@@ -353,6 +353,29 @@ sub get_cut_point {
   return $self->{cut_point};
 }
 
+=head3 get_num_of_seqs()
+
+get the number of sequences after calling explore_sequence_space()
+
+=cut
+
+sub get_num_of_seqs {
+  my $self = shift;
+  return $self->{nos};
+}
+
+=head3 get_num_of_nbors()
+
+get the number of neighbors of a sequence after calling explore_sequence_space()
+
+=cut
+
+sub get_num_of_nbors {
+  my $self = shift;
+  return $self->{border};
+}
+
+
 =head3 get_fibo(<INT>)
 
 get the fibronaccy number at position <INT>. The list starts with [0,1] at 
@@ -568,6 +591,8 @@ sub explore_sequence_space {
   #print "SLP: ".@slim_plist." => $border\n";
   #print "$rand_plist[$_] => @{$slim_plist[$_]}\n" foreach (0 .. $#slim_plist);
   #print "@{$slim_plist[$_]}\n" foreach (0 .. $#slim_plist);
+  
+  print "$nos Number of sequences, $border neighbors for each sequence.\n" if $self->{verb};
 
   $self->{plist}=\@slim_plist;
   $self->{rlist}=\@rand_plist;
@@ -640,7 +665,7 @@ sub enumerate_pathways {
   my $plen = length $pstr;
 
   croak "cycles must have even length" if $cycle && $plen%2;
-  croak "first call update_constraint(), then enumerate_pathways()!" if ($pstr =~ m/[N]/g) && ($pstr =~ m/[^N]/g);
+  #croak "first call update_constraint(), then enumerate_pathways()!" if ($pstr =~ m/[N]/) && ($pstr =~ m/[^N]/);
 
   my %solutions = %{$self->{solution_space}};
   my $max_plen  = $self->{max_const_plen};
@@ -650,7 +675,7 @@ sub enumerate_pathways {
 
   if (exists $solutions{$pstr.$cycle}) {
     return scalar($solutions{$pstr.$cycle}->get_leaves);
-  } elsif ($pstr =~ m/[N]/g) { 
+  } elsif ($pstr =~ m/[N]/ && $pstr !~ m/[^N]/) { 
     # its a path with all N's => (fibronacci: switch.pl)
     my $l = ($cycle) ? $plen-1 : $plen;
     return 2*($self->get_fibo($plen+1) + $self->get_fibo($l));
@@ -1004,7 +1029,7 @@ sub eval_sequence {
   $RNA::fold_constrained=1;
   $RNA::cut_point=$self->{cut_point};
   RNA::read_parameter_file($ParamFile) if ($ParamFile);
-  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ/) {
+  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ barr/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
 
@@ -1028,10 +1053,77 @@ sub eval_sequence {
   croak $@ if $@;
   croak "Result of objective function ($r) must not became negative!" if ($r<0);
 
-  my $p = $self->base_prob($seq);
+  my $p = $self->base_prob($seq, 1);
   my $a = $self->base_avoid($seq, $apen);
 
-  return $r*$p*$a;
+  my $d=1;
+  #$d = $self->cofold_defect2($seq) if (1 && $self->{cut_point} != -1);
+
+  return $r*$p*$a*$d;
+}
+
+sub barr {
+  my ($self, $seq, $i, $j, $t) = @_;
+  $t = 37 unless defined $t;
+  $RNA::temperature=$t;
+  my $kT=0.6163207755;
+
+  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  croak "cannot find structure number $j" if $i && !$self->{structures}[$j-1];
+
+  my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
+  my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
+
+  my $e_i = sprintf("%.2f", RNA::energy_of_structure($seq, $s_i, 0));
+  my $sE = RNA::find_saddle($seq, $s_i, $s_j, 10);
+
+  #DEBUG
+  #my $pathway = RNA::get_path($seq, $s_i, $s_j, 10);
+  #for (1 .. $pathway->size()-1) {
+  #  my $struct = $pathway->get($_)->{'s'};
+  #  my $energy= $pathway->get($_)->{'en'};
+  #  substr $struct, $RNA::cut_point, 0, '&' if $RNA::cut_point != -1;
+  #  printf "%s %6.2f\n", $struct, $energy;
+  #}
+  #print "barr: ".sprintf("%.2f", ($sE/100)-$e_i)."\n";
+  
+  return sprintf("%.2f", ($sE/100)-$e_i);
+}
+
+sub cofold_defect2 {
+  my ($self, $seq) = @_;
+
+  my $cpnt = $self->{cut_point};
+  my $left  = substr $seq, 0, $cpnt-1;
+  my $right = substr $seq, $cpnt-1;
+
+  $RNA::cut_point = $cpnt = length($right)+1;
+  my ($costruct, $comfe) = RNA::cofold($right.$right);
+  substr $costruct, $cpnt-1,0,'&';
+  $RNA::cut_point = -1;
+  #print "$costruct, $comfe:\n";
+  return 1 if ($comfe >= 0);
+
+  my @chars = split '', $costruct;
+  my @stack;
+  my $DIM=0;
+  for my $i (0 .. $#chars) {
+    if ($chars[$i] eq '&') {
+      $DIM = (@stack) ? 1 : 0;
+      # got two monomers
+      last;
+    } elsif ($chars[$i] eq '.') {
+      next;
+    } elsif ($chars[$i] eq '(') {
+      push @stack, ($i);
+    } elsif ($chars[$i] eq ')') {
+      my $j = pop @stack;
+      if ($j < $cpnt && $cpnt < ($i)) {
+        $DIM=1; last;
+      }
+    }
+  }
+  return ($DIM) ? -$comfe : 1;
 }
 
 sub base_avoid {
@@ -1058,7 +1150,8 @@ sub base_avoid {
 }
 
 sub base_prob {
-  my ($self, $seq) = @_;
+  my ($self, $seq, $pen) = @_;
+  return 1 unless $pen;
 
   my %prob = %{$self->{base_probs}};
   my %base;
@@ -1074,7 +1167,7 @@ sub base_prob {
       $cost *= $prob{$k}/$base{$k};
     }
   }
-  return $cost;
+  return $cost * $pen;
 }
 
 sub prob {
