@@ -2,7 +2,7 @@
 
 use strict;
 use warnings;
-use Test::More tests => 13;
+use Test::More tests => 14;
 
 # ****************************************** #
 # ~~~~~~~~~~ ALL INTERNAL MODULES ~~~~~~~~~~ #
@@ -145,6 +145,17 @@ is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependen
 
 $plist = [[0,15,7,14,8,13,9],[5,1,6],[2],[3],[4],[10],[11],[12]];
 is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- two pathways');
+
+@structs = (
+  #0....,....1....,....2....,....3',
+  '(...).....',
+  '(...).....',
+  '....(...).',
+);
+
+$plist = [[0,4,8],[1],[2],[3],[5],[6],[7],[9]];
+is_deeply($ViennaDesign->find_dependency_paths(@structs), $plist, 'find_dependency_paths -- duplicate struct');
+
 
 @structs = (
   #0....,....1....,....2....,....3',

@@ -439,12 +439,15 @@ sub find_dependency_paths {
     # add, but warn if base-pairs are not compatible
     my $pt = RNA::Utils::make_pair_table($struct);
     for my $i (1 .. @$pt) {
-      next unless $$pt[$i];
+      next unless $$pt[$i]; # next if unpaired
       my $j=$$pt[$i];
       if (defined $check[$i]) {
         my $new=1;
         foreach (@{$check[$i]}) {
-          $new=0 if $_ == $j;
+          if ($_ == $j) {
+            $new=0;
+            $$pt[$i]=$$pt[$j]=0;
+          }
         }
         if ($new && @{$check[$i]} > 1) {
           carp "ignoring basepair $i - $j from structure ".($s+1);
