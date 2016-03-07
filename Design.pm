@@ -8,7 +8,7 @@ use Data::Dumper;
 
 use Exporter;
 
-our $VERSION    = 1.00;
+our $VERSION    = 1.10;
 our @ISA        = qw(Exporter);
 our @EXPORT     = ();
 our @EXPORT_OK  = ();
@@ -62,10 +62,19 @@ sub new {
     nos   => undef,
     plist => [],
     rlist => [],
-    avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
-    avoid_penalty => 5,
-    base_probs    => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
-    paramfile     => '',
+    score_motifs => ({
+        AAAAA => 5, 
+        CCCCC => 5,
+        GGGGG => 5,
+        UUUUU => 5
+      }),
+    base_probs => ({
+        A => 0.25, 
+        C => 0.25, 
+        G => 0.25, 
+        U => 0.25
+      }),
+    paramfile  => '',
     verb  => 0,
 
     structures  => [],
@@ -230,43 +239,27 @@ sub get_constraint {
   return $self->{constraint};
 }
 
-=head3 set_avoid_motifs(<ARRAY>)
+=head3 set_score_motifs(<HASH>)
 
-set a list of sequence motifs that will cause a penalty during optimization.
-
-=cut
-
-sub set_avoid_motifs {
-  my $self = shift;
-  $self->{avoid} = [@_];
-  return $self->{avoid};
-}
-
-sub get_avoid_motifs {
-  my $self = shift;
-  return $self->{avoid};
-}
-
-=head3 set_avoid_penalty(<INT>)
-
-set the penalty for sequence motifs specified with C<set_avoid_motifs()>
+set a list of sequence motifs that will recieve a penalty (postive number) or
+bonus (negative number) during optimization.
 
 =cut
 
-sub set_avoid_penalty {
+sub set_score_motifs {
   my ($self, $var) = @_;
-  $self->{avoid_penalty} = $var;
-  return $self->{avoid_penalty};
+  $self->{score_motifs} = $var;
+  return $self->{score_motifs};
 }
 
-sub get_avoid_penalty {
+sub get_score_motifs {
   my $self = shift;
-  return $self->{avoid_penalty};
+  return $self->{score_motifs};
 }
 
 =head3 set_base_probs(<HASH>)
 
-set the penalty for sequence motifs specified with C<set_avoid_motifs()>
+specify the distribution of nucleotides in the target sequence
 
 =cut
 
@@ -423,8 +416,8 @@ sub find_dependency_paths {
   for (my $s=0; $s<@structures; ++$s) {
     my $struct = $structures[$s];
 
-    # discard if empty or too short!
-    next if $struct !~ m/[\(\)\[\]]/;
+    # TODO: discard if too short!
+    next if $struct !~ m/[\(\)\[\]\.]/;
 
     # change '[,]' to '(,)'
     if ($struct =~ m/[\[]/) {
@@ -547,8 +540,8 @@ sub explore_sequence_space {
   my $con   =  $self->{constraint};
   my %iupac =%{$self->{iupac}};
 
-  croak "need to comupute depencendy pathways first!" unless @plist;
-  croak "need constraint infromation!" unless $con;
+  croak "need to compute dependency pathways first!" unless @plist;
+  croak "need constraint information!" unless $con;
 
   my ($border, $max_len, $nos) = (0,0,1);
   my @slim_plist;
@@ -1023,7 +1016,6 @@ sub eval_sequence {
 
   my $verb = $self->{verb};
   my $ofun = $self->{optfunc};
-  my $apen = $self->{avoid_penalty};
   my $ParamFile = $self->{paramfile};
   warn "$seq\n".$ofun."\n" if $verb > 1;
   croak "no structures specified!\n" unless @{$self->{structures}};
@@ -1054,16 +1046,24 @@ sub eval_sequence {
   warn $ofun."\n" if $verb > 1;
   my $r = eval $ofun;
   croak $@ if $@;
-  croak "Result of objective function ($r) must not became negative!" if ($r<0);
 
-  my $p = $self->base_prob($seq, 1);
-  my $a = $self->base_avoid($seq, $apen);
+  #TODO: make adjustable
+  my $ppen = 500;
 
-  my $d=1;
-  #$d = $self->cofold_defect2($seq) if (1 && $self->{cut_point} != -1);
+  # Returns a cost between 0 and $ppen
+  my $p = $self->base_prob($seq)*$ppen;
+  my $s = $self->score_motifs($seq);
 
-  return $r*$p*$a*$d;
+  #print "$r, $p, $a, \n";
+
+  return $r+$p+$s;
 }
+
+# sub ensemble_defect {
+#   my ($self, $seq, $i, $t) = @_;
+#   my $probs = get_base_pair_probs();
+# 
+# }
 
 sub barr {
   my ($self, $seq, $i, $j, $t) = @_;
@@ -1129,32 +1129,31 @@ sub cofold_defect2 {
   return ($DIM) ? -$comfe : 1;
 }
 
-sub base_avoid {
-  my ($self, $seq, $pen) = @_;
-  my $penalty=1;
+sub score_motifs {
+  my ($self, $seq) = @_;
+  my $penalty = 0;
 
-  my @avoid = @{$self->{avoid}};
+  my %motifs = %{$self->{score_motifs}};
   my $cpnt = $self->{cut_point};
 
   if ($cpnt == -1) {
-    foreach my $string (@avoid) {
-      $penalty *= $pen while ($seq =~ m/$string/g);
+    foreach my $string (keys %motifs) {
+      $penalty += $motifs{$string} while ($seq =~ m/$string/g);
     }
   } else {
     my $left  = substr $seq, 0, $cpnt-1;
     my $right = substr $seq, $cpnt-1;
     #print "$left&$right\n";
-    foreach my $string (@avoid) {
-      $penalty *= $pen while ($left   =~ m/$string/g);
-      $penalty *= $pen while ($right  =~ m/$string/g);
+    foreach my $string (keys %motifs) {
+      $penalty += $motifs{$string} while ($left   =~ m/$string/g);
+      $penalty += $motifs{$string} while ($right  =~ m/$string/g);
     }
   }
   return $penalty;
 }
 
 sub base_prob {
-  my ($self, $seq, $pen) = @_;
-  return 1 unless $pen;
+  my ($self, $seq) = @_;
 
   my %prob = %{$self->{base_probs}};
   my %base;
@@ -1163,14 +1162,14 @@ sub base_prob {
   my $cost=1;
   foreach my $k (keys %base) {
     $base{$k} /= length $seq;
-    #print "Dist $k $base{$k} vs $prob{$k} => \n";
-    if ($base{$k} > $prob{$k}) {
-      $cost *= $base{$k}/$prob{$k};
-    } else {
-      $cost *= $prob{$k}/$base{$k};
-    }
+    # print "Dist $k $base{$k} vs $prob{$k} => \n";
+
+    #$cost += (abs($base{$k}-$prob{$k})/$prob{$k});
+    $cost -= sqrt($base{$k}*$prob{$k});
+
+    #print "$base{$k}, $prob{$k}, $cost\n";
   }
-  return $cost * $pen;
+  return $cost;
 }
 
 sub prob {
