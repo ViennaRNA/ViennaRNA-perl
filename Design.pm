@@ -57,11 +57,14 @@ description of public functions.
 sub new {
   my $class = shift;
   my $self = {
+    # Internal Stuff
     fibo  => [0,1],
     border=> 0,
     nos   => undef,
     plist => [],
     rlist => [],
+
+    # Default options
     score_motifs => ({
         AAAAA => 5, 
         CCCCC => 5,
@@ -79,6 +82,8 @@ sub new {
 
     structures  => [],
     cut_point   => -1,
+    findpath    => 10,
+    base_pen    => 500,
     constraint  => '',
     optfunc     => 'eos(1)+eos(2) - 2*efe() + 0.3*(eos(1)-eos(2)+0.00)**2',
 
@@ -345,6 +350,41 @@ sub get_cut_point {
   my $self = shift;
   return $self->{cut_point};
 }
+
+=head3 set_findpath_bound(<INT>)
+
+Set the upper bound for findpath when using B<barr(i,j,t)> in the objective function.
+
+=cut
+
+sub set_findpath_bound {
+  my ($self, $var) = @_;
+  $self->{findpath} = $var;
+  return $self->{findpath};
+}
+
+sub get_findpath_bound {
+  my $self = shift;
+  return $self->{findpath};
+}
+
+=head3 set_base_penalty(<INT>)
+
+Set a weighting factor to correct for desired base percentage
+
+=cut
+
+sub set_base_penalty {
+  my ($self, $var) = @_;
+  $self->{base_pen} = $var;
+  return $self->{base_pen};
+}
+
+sub get_base_penalty {
+  my $self = shift;
+  return $self->{base_pen};
+}
+
 
 =head3 get_num_of_seqs()
 
@@ -1024,7 +1064,7 @@ sub eval_sequence {
   $RNA::fold_constrained=1;
   $RNA::cut_point=$self->{cut_point};
   RNA::read_parameter_file($ParamFile) if ($ParamFile);
-  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ barr/) {
+  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ barr acc/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
 
@@ -1047,86 +1087,13 @@ sub eval_sequence {
   my $r = eval $ofun;
   croak $@ if $@;
 
-  #TODO: make adjustable
-  my $ppen = 500;
+  my $bpen = $self->{base_pen};
 
-  # Returns a cost between 0 and $ppen
-  my $p = $self->base_prob($seq)*$ppen;
+  my $p = ($bpen) ? $self->base_prob($seq)*$bpen : 0;
   my $s = $self->score_motifs($seq);
-
-  #print "$r, $p, $a, \n";
+  #print "$r, $p, $s, \n";
 
   return $r+$p+$s;
-}
-
-# sub ensemble_defect {
-#   my ($self, $seq, $i, $t) = @_;
-#   my $probs = get_base_pair_probs();
-# 
-# }
-
-sub barr {
-  my ($self, $seq, $i, $j, $t) = @_;
-  $t = 37 unless defined $t;
-  $RNA::temperature=$t;
-  my $kT=0.6163207755;
-
-  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
-  croak "cannot find structure number $j" if $i && !$self->{structures}[$j-1];
-
-  my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
-  my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
-
-  my $e_i = sprintf("%.2f", RNA::energy_of_structure($seq, $s_i, 0));
-  my $sE = RNA::find_saddle($seq, $s_i, $s_j, 10);
-
-  #DEBUG
-  #my $pathway = RNA::get_path($seq, $s_i, $s_j, 10);
-  #for (1 .. $pathway->size()-1) {
-  #  my $struct = $pathway->get($_)->{'s'};
-  #  my $energy= $pathway->get($_)->{'en'};
-  #  substr $struct, $RNA::cut_point, 0, '&' if $RNA::cut_point != -1;
-  #  printf "%s %6.2f\n", $struct, $energy;
-  #}
-  #print "barr: ".sprintf("%.2f", ($sE/100)-$e_i)."\n";
-  
-  return sprintf("%.2f", ($sE/100)-$e_i);
-}
-
-sub cofold_defect2 {
-  my ($self, $seq) = @_;
-
-  my $cpnt = $self->{cut_point};
-  my $left  = substr $seq, 0, $cpnt-1;
-  my $right = substr $seq, $cpnt-1;
-
-  $RNA::cut_point = $cpnt = length($right)+1;
-  my ($costruct, $comfe) = RNA::cofold($right.$right);
-  substr $costruct, $cpnt-1,0,'&';
-  $RNA::cut_point = -1;
-  #print "$costruct, $comfe:\n";
-  return 1 if ($comfe >= 0);
-
-  my @chars = split '', $costruct;
-  my @stack;
-  my $DIM=0;
-  for my $i (0 .. $#chars) {
-    if ($chars[$i] eq '&') {
-      $DIM = (@stack) ? 1 : 0;
-      # got two monomers
-      last;
-    } elsif ($chars[$i] eq '.') {
-      next;
-    } elsif ($chars[$i] eq '(') {
-      push @stack, ($i);
-    } elsif ($chars[$i] eq ')') {
-      my $j = pop @stack;
-      if ($j < $cpnt && $cpnt < ($i)) {
-        $DIM=1; last;
-      }
-    }
-  }
-  return ($DIM) ? -$comfe : 1;
 }
 
 sub score_motifs {
@@ -1172,11 +1139,55 @@ sub base_prob {
   return $cost;
 }
 
-sub prob {
+# sub ensemble_defect {
+#   my ($self, $seq, $i, $t) = @_;
+#   my $probs = get_base_pair_probs();
+# 
+# }
+#
+# sub cofold_defect2 {
+#   my ($self, $seq) = @_;
+# 
+#   my $cpnt = $self->{cut_point};
+#   my $left  = substr $seq, 0, $cpnt-1;
+#   my $right = substr $seq, $cpnt-1;
+# 
+#   $RNA::cut_point = $cpnt = length($right)+1;
+#   my ($costruct, $comfe) = RNA::cofold($right.$right);
+#   substr $costruct, $cpnt-1,0,'&';
+#   $RNA::cut_point = -1;
+#   #print "$costruct, $comfe:\n";
+#   return 1 if ($comfe >= 0);
+# 
+#   my @chars = split '', $costruct;
+#   my @stack;
+#   my $DIM=0;
+#   for my $i (0 .. $#chars) {
+#     if ($chars[$i] eq '&') {
+#       $DIM = (@stack) ? 1 : 0;
+#       # got two monomers
+#       last;
+#     } elsif ($chars[$i] eq '.') {
+#       next;
+#     } elsif ($chars[$i] eq '(') {
+#       push @stack, ($i);
+#     } elsif ($chars[$i] eq ')') {
+#       my $j = pop @stack;
+#       if ($j < $cpnt && $cpnt < ($i)) {
+#         $DIM=1; last;
+#       }
+#     }
+#   }
+#   return ($DIM) ? -$comfe : 1;
+# }
+
+sub barr {
   my ($self, $seq, $i, $j, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  my $kT=0.6163207755;
+
+  #TODO: make set_routine
+  my $fpd = $self->{findpath};
 
   croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
   croak "cannot find structure number $j" if $i && !$self->{structures}[$j-1];
@@ -1184,13 +1195,63 @@ sub prob {
   my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
   my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
 
+  my $e_i = sprintf("%.2f", RNA::energy_of_structure($seq, $s_i, 0));
+  my $sE = RNA::find_saddle($seq, $s_i, $s_j, $fpd);
+
+  return sprintf("%.2f", ($sE/100)-$e_i);
+}
+
+sub acc {
+  return prob(@_);
+}
+
+sub acc_circ {
+  return prob_circ(@_);
+}
+
+sub prob {
+  my ($self, $seq, $i, $j, $t) = @_;
+  $t = 37 unless defined $t;
+  $RNA::temperature=$t;
+  my $kT=0.6163207755;
+  if ($t != 37) {
+    $kT /= 310.15;
+    $kT *= ($t+273.15);
+  }
+
+  croak "prob(): no structure input" unless $i;
+  croak "prob(): cannot find structure number $i" if !$self->{structures}[$i-1];
+  croak "prob(): cannot find structure number $j" if $j && !$self->{structures}[$j-1];
+
+  my $s_i = $self->{structures}[$i-1];
+  my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
+
+  # A hack to make sure people do not fuck up their probability calculations
+  # if ($s_j) {
+  #   print $s_i."\n";
+  #   my $c=0;
+  #   foreach (split //, $s_i) {
+  #     if ($_ ne '.') {
+  #       print "$c, $_ vs ".substr($s_j, $c, 1)."\n";
+  #       substr($s_j, $c, 1, $_);
+  #     }
+  #     $c++;
+  #   }
+  # }
+
   my ($dGi, $dGj, $tmp);
   if ($RNA::cut_point == -1) {
-    $tmp=$s_i; $dGi = RNA::pf_fold($seq, $tmp);
-    $tmp=$s_j; $dGj = RNA::pf_fold($seq, $tmp);
+    # seemingly useless string modification
+    # to avoid ViennaRNA SWIG interface bugs
+    $tmp=$s_i; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+    $dGi = RNA::pf_fold($seq, $tmp);
+    $tmp=$s_j; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+    $dGj = RNA::pf_fold($seq, $tmp);
   } else {
-    $tmp=$s_i; $dGi = RNA::co_pf_fold($seq, $tmp);
-    $tmp=$s_j; $dGj = RNA::co_pf_fold($seq, $tmp);
+    $tmp=$s_i; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+    $dGi = RNA::co_pf_fold($seq, $tmp);
+    $tmp=$s_j; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+    $dGj = RNA::co_pf_fold($seq, $tmp);
   }
 
   return exp(($dGj-$dGi)/$kT);
@@ -1201,17 +1262,26 @@ sub prob_circ {
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $kT=0.6163207755;
+  if ($t != 37) {
+    $kT /= 310.15;
+    $kT *= ($t+273.15);
+  }
 
-  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
-  croak "cannot find structure number $j" if $j && !$self->{structures}[$j-1];
-  carp "ignoring cut_point for circular costfunction" if ($RNA::cut_point != -1);
+  croak "prob_circ(): no structure input" unless $i;
+  croak "prob_circ(): cannot find structure number $i" if !$self->{structures}[$i-1];
+  croak "prob_circ(): cannot find structure number $j" if $j && !$self->{structures}[$j-1];
+  carp  "prob_circ(): ignoring cut_point" if ($RNA::cut_point != -1);
 
-  my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
+  my $s_i = $self->{structures}[$i-1];
   my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
-  my $tmp;
 
-  $tmp=$s_i; my $dGi = RNA::pf_circ_fold($seq, $tmp);
-  $tmp=$s_j; my $dGj = RNA::pf_circ_fold($seq, $tmp);
+  my ($dGi, $dGj, $tmp);
+  # seemingly useless string modification
+  # to avoid ViennaRNA SWIG interface bugs
+  $tmp=$s_i; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+  $dGi = RNA::pf_circ_fold($seq, $tmp);
+  $tmp=$s_j; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+  $dGj = RNA::pf_circ_fold($seq, $tmp);
 
   return exp(($dGj-$dGi)/$kT);
 }
@@ -1220,7 +1290,8 @@ sub eos {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
+  croak "eos(): no structure input" unless $i;
+  croak "eos(): cannot find structure number $i" unless $self->{structures}[$i-1];
   my $str = $self->{structures}[$i-1];
   # ($str =~ m/[\(\)]/) ? k
   return RNA::energy_of_struct($seq, $str);
@@ -1230,7 +1301,9 @@ sub eos_circ {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
+  croak "eos_circ(): no structure input" unless $i;
+  croak "eos_circ(): cannot find structure number $i" unless $self->{structures}[$i-1];
+  carp  "eos_circ(): ignoring cut_point" if ($RNA::cut_point != -1);
   my $str = $self->{structures}[$i-1];
   return RNA::energy_of_circ_struct($seq, $str);
 }
@@ -1239,7 +1312,7 @@ sub efe {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  croak "efe(): cannot find structure number $i" if $i && !$self->{structures}[$i-1];
 
   my $str = ($i) ? $self->{structures}[$i-1] : undef;
   # seemingly useless string modification
@@ -1254,15 +1327,13 @@ sub efe_circ {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
-  carp "ignoring cut_point for circular costfunction" if ($RNA::cut_point != -1);
+  croak "efe_circ(): cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  carp  "efe_circ(): ignoring cut_point" if ($RNA::cut_point != -1);
 
   my $str = ($i) ? $self->{structures}[$i-1] : undef;
   # seemingly useless string modification
   # to avoid ViennaRNA SWIG interface bugs
-  if ($str) {
-    $str.='.'; $str=substr($str,0,-1);
-  }
+  if ($str) { $str.='.'; $str=substr($str,0,-1); }
   return RNA::pf_circ_fold($seq, $str);
 }
 
