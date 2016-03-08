@@ -13,31 +13,38 @@ our @ISA        = qw(Exporter);
 our @EXPORT     = ();
 our @EXPORT_OK  = ();
 
-=head1 AUTHOR
-
-Stefan Badelt (stef@tbi.univie.ac.at)
-
 =head1 NAME
 
 B<RNA::Design> -- plug-and-play design of nucleic acid sequences
 
 =head1 DESCRIPTION
 
-This package provides various subroutines to design RNA molecules optimized for
-single or multiple conformations. The properties of the target molecules have
-to be specified in the Main Object: C<$Design = RNA::Design-E<gt>new()>.
-B<RNA::Design> supports structure constraints that can be specified by two
-well-formed dot-bracket strings. Additional base-pairs specified as input will
-be ignored and produce a warning. Sequence optimization functions can be
-composed of the sub-functions: C<eos(i,t)> (energy of structure), C<efe(i,t)>
-(ensemble free energy), and C<prob(i,j,t)> (probability of structure), where
-C<i> and C<j> stand for the number of the input-structure and C<t> allows the 
-user to specify a temperature. All of these functions exist for circular sequences 
-by attatching a C<_circ> flag (for example C<eos_circ(i,t)>.
+This package provides various functions to design RNA or DNA molecules.
+Sequences may be optimized to fold into single or multiple conformations. The
+properties of the target molecules have to be specified in the Main Object:
+C<$Design = RNA::Design-E<gt>new()>.
 
-Additionally, cost-functions are multiplied with a term that corrects for specified 
-base-probabilities (see set_prob()) and penalties for particular subsequences that 
-shall be avoided (see set_avoid()).
+B<RNA::Design> supports structure constraints from multiple secondary
+structures in dot-bracket notation and sequence constraints in I<IUPAC> code
+(i.e. A, C, G, U/T, N, R, Y, S, M, W, K, V, H, D, B). Both sequence and
+structure constraints are strictly enforced during the design process. However,
+B<RNA::Design> avoids difficulties of multi-stable designs where a single
+nucleotide has more than two dependencies.  In that case, base-pair constraints
+are not strictly enforced, but still evaluated in the objective function. A
+warning will be printed to *STDERR*.
+
+Sequence optimization functions can be composed of the sub-functions:
+C<eos(i,t)> (energy of structure), C<efe(i,t)> (ensemble free energy),
+C<prob(i,j,t)> (probability of structure), C<acc(i,j,t)> (accessibility of
+region), C<barr(i,j,t)> (direct path barrier). C<i> and C<j> stand for the
+number of the input-structure and C<t> is optional to specify a temperature
+other than 37 Celsius. These functions exist for circular sequences by
+attatching a C<_circ> flag (for example C<eos_circ(i,t)>. More detailed
+explanation follows below.
+
+By default, two independent penalties are added to the objective function:
+set_base_probs() corrects for a specified distribution of nucleotides,
+set_score_motifs() penalizes particular subsequences.
 
 =head1 METHODS
 
@@ -46,13 +53,12 @@ shall be avoided (see set_avoid()).
 =head2 new()
 
 Initialize the Global Object for Nucleic Acid Design. It contains various
-public elements, such as a list of structures specified in the cost-
-function, the cost-function itself, a probability distribution of bases, 
-and a set of penalized nucleic acid sequences. See get/set routines for 
-description of public functions.
+public elements, such as a list of structures specified in the cost- function,
+the cost-function itself, a target distribution of nucleotide counts, and a set
+of penalized nucleic acid sequences. See get/set routines for description of
+public functions.
 
 =cut
-
 
 sub new {
   my $class = shift;
@@ -195,7 +201,7 @@ exists the equivalent C<get> routine.
 
 =head3 set_verbosity(<INT>)
 
-set the verboisty of warnings to STDERR.
+Set the verboisty of warnings to STDERR.
 
 =cut 
 
@@ -212,7 +218,7 @@ sub get_verbosity {
 
 =head3 set_optfunc(<STRING>)
 
-set the cost-function for sequence optimization.
+Set the cost-function for sequence optimization.
 
 =cut
 
@@ -229,7 +235,7 @@ sub get_optfunc {
 
 =head3 set_constraint(<STRING>)
 
-set the sequence constraints for sequence optimization.
+Set the sequence constraints for sequence optimization.
 
 =cut
 
@@ -246,7 +252,7 @@ sub get_constraint {
 
 =head3 set_score_motifs(<HASH>)
 
-set a list of sequence motifs that will recieve a penalty (postive number) or
+Set a list of sequence motifs that will recieve a penalty (postive number) or
 bonus (negative number) during optimization.
 
 =cut
@@ -264,7 +270,7 @@ sub get_score_motifs {
 
 =head3 set_base_probs(<HASH>)
 
-specify the distribution of nucleotides in the target sequence
+Specify the distribution of nucleotides in the target sequence.
 
 =cut
 
@@ -281,7 +287,7 @@ sub get_base_probs {
 
 =head3 set_parameter_file(<STRING>)
 
-set a parameter file other than rna_turner2004.par
+Set a parameter file other than rna_turner2004.par.
 
 =cut
 
@@ -298,7 +304,7 @@ sub get_parameter_file {
 
 =head3 set_structures(<ARRAY>)
 
-set the list of structures for sequence optimization
+Set the list of structures for sequence optimization.
 
 =cut
 
@@ -332,7 +338,7 @@ sub get_structures {
 
 =head3 set_cut_point(<INT>)
 
-set a cut_point when designing two interacting molecules. The cut point
+Set a cut_point when designing two interacting molecules. The cut point
 indicates the first nucleotide of the second sequence.
 
 =cut
@@ -370,7 +376,7 @@ sub get_findpath_bound {
 
 =head3 set_base_penalty(<INT>)
 
-Set a weighting factor to correct for desired base percentage
+Set a weighting factor to correct for desired base percentage.
 
 =cut
 
@@ -388,7 +394,7 @@ sub get_base_penalty {
 
 =head3 get_num_of_seqs()
 
-get the number of sequences after calling explore_sequence_space()
+Set the number of sequences after calling explore_sequence_space().
 
 =cut
 
@@ -399,7 +405,7 @@ sub get_num_of_seqs {
 
 =head3 get_num_of_nbors()
 
-get the number of neighbors of a sequence after calling explore_sequence_space()
+Get the number of neighbors of a sequence after calling explore_sequence_space().
 
 =cut
 
@@ -411,7 +417,7 @@ sub get_num_of_nbors {
 
 =head3 get_fibo(<INT>)
 
-get the fibronaccy number at position <INT>. The list starts with [0,1] at 
+Get the fibronaccy number at position <INT>. The list starts with [0,1] at 
 positions 0,1. Note that there is no C<set> routine for fibonacci.
 
 =cut
@@ -783,10 +789,6 @@ sub enumerate_pathways {
   $self->{solution_space}->{$pstr.$cycle} = $tree;
   return scalar($tree->get_leaves);
 }
-
-sub fill_solution_space {
-
-}
  
 =head3 rewrite_neighbor($iupac, \$iupac)
 
@@ -1046,7 +1048,32 @@ sub make_pathseq {
 
 =head2 eval_sequence($sequence)
 
-Evaluate a given sequence according to the cost function.
+Evaluate a given sequence according to the cost function. The final score is
+calculated as the sum over three values: 
+
+(1) The objective function is a simplified interface to access functions of the
+*ViennaRNA package*. Every input secondary structure *can* serve as full target
+conformation or structure constraint. The objective function can include terms
+to compute the free energy of a target structure, the (constrained) ensemble
+free energy, the (conditional) probabilities of secondary structure elements,
+the accessibility of subsequences and the direct-path barriers between two
+structures. All of these terms exist for linear, circular, and cofolded
+molecules, as well as for custom specified temperatures. In the following
+examples, the indices B<i, j> correspond to the secondary structures specified
+in the input file, B<t> is optional to specify the temperature in Celsius. By
+default, computations use the standard temperature of 37C.
+
+
+
+2) score_motifs(): A set of sequence motifs that receive an extra penalty.
+Whenever one of these motifs is found in a sequence, its penalty (or bonus) is
+added to the score of the objective function. 
+
+3) base_prob(): A vector with nuleotide distributions is compared with a
+target distribution vector. The similarity between the vectors is expressed
+as a value s=[0,1]. In order to include and weight this similarity in the
+final score, the penalty is calculated as (1-s)*k, where k is a constant 
+adjustable using set_base_penalty()
 
 =cut
 
@@ -1181,6 +1208,20 @@ sub base_prob {
 #   return ($DIM) ? -$comfe : 1;
 # }
 
+=head2 objective function tools
+
+Subfunctions that can be specified in the objective function.
+
+=cut
+
+=head3 barr(i, j, t)
+
+direct path energy barrier from input structure number i to input structure
+number j computed using findpath. The upper bound of findpath is adjustable
+with set_findpath_bound()
+
+=cut
+
 sub barr {
   my ($self, $seq, $i, $j, $t) = @_;
   $t = 37 unless defined $t;
@@ -1201,13 +1242,15 @@ sub barr {
   return sprintf("%.2f", ($sE/100)-$e_i);
 }
 
-sub acc {
-  return prob(@_);
-}
+=head3 prob(i, j, t)
 
-sub acc_circ {
-  return prob_circ(@_);
-}
+Probability of input structure number B<i> given input structure number B<j>.
+The probability is computed from the equilibrium partition functions:
+B<Pr(i|j)=Z_i/Z_j>. Hence, the constraint B<i> B<must> include the constraint
+of B<j> B<(Pr(i|j)=Z_i+j/Z_j)>. Omitting B<j>, or specifying B<j=0> computes the
+probability of B<i> in the unconstrained ensemble B<Pr(i)=Z_i/Z>. 
+
+=cut
 
 sub prob {
   my ($self, $seq, $i, $j, $t) = @_;
@@ -1257,6 +1300,12 @@ sub prob {
   return exp(($dGj-$dGi)/$kT);
 }
 
+=head3 prob_circ(i, j, t)
+
+prob(i,j,t) for circular molecules.
+
+=cut
+
 sub prob_circ {
   my ($self, $seq, $i, $j, $t) = @_;
   $t = 37 unless defined $t;
@@ -1286,6 +1335,34 @@ sub prob_circ {
   return exp(($dGj-$dGi)/$kT);
 }
 
+=head3 acc(i, j, t)
+
+Accessibility of an RNA/DNA motif. This function is exactly the same as
+prob(i,j,t), however, it is ment to be used with constraints that use the
+character 'x' to specify strictly unpaired regions.
+
+=cut
+
+sub acc {
+  return prob(@_);
+}
+
+=head3 acc_circ(i, j, t)
+
+acc(i,j,t) for circular molecules.
+
+=cut
+
+sub acc_circ {
+  return prob_circ(@_);
+}
+
+=head3 eos(i, t)
+
+Free energy of input structure number B<i> at temperature B<t>. 
+
+=cut
+
 sub eos {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
@@ -1297,6 +1374,12 @@ sub eos {
   return RNA::energy_of_struct($seq, $str);
 }
 
+=head3 eos_circ(i, t)
+
+Free energy of the circular input structure number B<i> at temperature B<t>. 
+
+=cut
+
 sub eos_circ {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
@@ -1307,6 +1390,14 @@ sub eos_circ {
   my $str = $self->{structures}[$i-1];
   return RNA::energy_of_circ_struct($seq, $str);
 }
+
+=head3 efe(i, t)
+
+Free energy of a secondary structure ensemble, constraint to be compatible with
+input structure number B<i>. Omitting B<i>, or specifying B<i=0> computes the
+unconstraint ensemble free energy.
+
+=cut
 
 sub efe {
   my ($self, $seq, $i, $t) = @_;
@@ -1322,6 +1413,14 @@ sub efe {
   }
   return ($RNA::cut_point == -1) ? RNA::pf_fold($seq, $str) : RNA::co_pf_fold($seq, $str);
 }
+
+=head3 efe_circ(i, t)
+
+Free energy of a circular secondary structure ensemble, constraint to be
+compatible with input structure number B<i>. Omitting B<i>, or specifying
+B<i=0> computes the unconstraint ensemble free energy.
+
+=cut
 
 sub efe_circ {
   my ($self, $seq, $i, $t) = @_;
@@ -1402,3 +1501,32 @@ sub get_full_path {
 
 1;
 
+=head1 AUTHOR
+
+Stefan Badelt (stef@tbi.univie.ac.at)
+
+=head1 VERSION-LOG
+
+  1.10 -- changed in cost function interface:
+       *added acc(i,j,t)
+       *added acc_circ(i,j,t)
+       *changed score_motifs():
+            reads a hash of (motif => score) pairs
+            and adds the scores to the cost-function
+       *changed base_prob():
+            compares vector of nucleotide frequencies with specified vector
+       *added base_penalty: 
+            is a factor to weight base_prob() score
+       *changed eval_sequence():
+          now computes score as sum over
+          objective + base_prob + score_motifs
+
+       -- fixed SWIG interface problems for:
+          prob(i,j,t), 
+          prob_circ(i,j,t)
+
+       -- bugfix in find_dependency_paths()
+
+  1.00 -- initial release (ViennaRNA-v2.2)
+
+=cut
