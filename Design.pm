@@ -8,14 +8,10 @@ use Data::Dumper;
 
 use Exporter;
 
-our $VERSION    = 1.00;
+our $VERSION    = 1.10;
 our @ISA        = qw(Exporter);
 our @EXPORT     = ();
 our @EXPORT_OK  = ();
-
-=head1 AUTHOR
-
-Stefan Badelt (stef@tbi.univie.ac.at)
 
 =head1 NAME
 
@@ -23,21 +19,32 @@ B<RNA::Design> -- plug-and-play design of nucleic acid sequences
 
 =head1 DESCRIPTION
 
-This package provides various subroutines to design RNA molecules optimized for
-single or multiple conformations. The properties of the target molecules have
-to be specified in the Main Object: C<$Design = RNA::Design-E<gt>new()>.
-B<RNA::Design> supports structure constraints that can be specified by two
-well-formed dot-bracket strings. Additional base-pairs specified as input will
-be ignored and produce a warning. Sequence optimization functions can be
-composed of the sub-functions: C<eos(i,t)> (energy of structure), C<efe(i,t)>
-(ensemble free energy), and C<prob(i,j,t)> (probability of structure), where
-C<i> and C<j> stand for the number of the input-structure and C<t> allows the 
-user to specify a temperature. All of these functions exist for circular sequences 
-by attatching a C<_circ> flag (for example C<eos_circ(i,t)>.
+This package provides various functions to design RNA or DNA molecules.
+Sequences may be optimized to fold into single or multiple conformations. The
+properties of the target molecules have to be specified in the Main Object:
+C<$Design = RNA::Design-E<gt>new()>.
 
-Additionally, cost-functions are multiplied with a term that corrects for specified 
-base-probabilities (see set_prob()) and penalties for particular subsequences that 
-shall be avoided (see set_avoid()).
+B<RNA::Design> supports structure constraints from multiple secondary
+structures in dot-bracket notation and sequence constraints in I<IUPAC> code
+(i.e. A, C, G, U/T, N, R, Y, S, M, W, K, V, H, D, B). Both sequence and
+structure constraints are strictly enforced during the design process. However,
+B<RNA::Design> avoids difficulties of multi-stable designs where a single
+nucleotide has more than two dependencies.  In that case, base-pair constraints
+are not strictly enforced, but still evaluated in the objective function. A
+warning will be printed to *STDERR*.
+
+Sequence optimization functions can be composed of the sub-functions:
+C<eos(i,t)> (energy of structure), C<efe(i,t)> (ensemble free energy),
+C<prob(i,j,t)> (probability of structure), C<acc(i,j,t)> (accessibility of
+region), C<barr(i,j,t)> (direct path barrier). C<i> and C<j> stand for the
+number of the input-structure and C<t> is optional to specify a temperature
+other than 37 Celsius. These functions exist for circular sequences by
+attatching a C<_circ> flag (for example C<eos_circ(i,t)>. More detailed
+explanation follows below.
+
+By default, two independent penalties are added to the objective function:
+set_base_probs() corrects for a specified distribution of nucleotides,
+set_score_motifs() penalizes particular subsequences.
 
 =head1 METHODS
 
@@ -46,30 +53,43 @@ shall be avoided (see set_avoid()).
 =head2 new()
 
 Initialize the Global Object for Nucleic Acid Design. It contains various
-public elements, such as a list of structures specified in the cost-
-function, the cost-function itself, a probability distribution of bases, 
-and a set of penalized nucleic acid sequences. See get/set routines for 
-description of public functions.
+public elements, such as a list of structures specified in the cost- function,
+the cost-function itself, a target distribution of nucleotide counts, and a set
+of penalized nucleic acid sequences. See get/set routines for description of
+public functions.
 
 =cut
-
 
 sub new {
   my $class = shift;
   my $self = {
+    # Internal Stuff
     fibo  => [0,1],
     border=> 0,
     nos   => undef,
     plist => [],
     rlist => [],
-    avoid => ['AAAAA','CCCCC','GGGGG','UUUUU'],
-    avoid_penalty => 5,
-    base_probs    => ({A => 0.25, C => 0.25, G => 0.25, U => 0.25}),
-    paramfile     => '',
+
+    # Default options
+    score_motifs => ({
+        AAAAA => 5, 
+        CCCCC => 5,
+        GGGGG => 5,
+        UUUUU => 5
+      }),
+    base_probs => ({
+        A => 0.25, 
+        C => 0.25, 
+        G => 0.25, 
+        U => 0.25
+      }),
+    paramfile  => '',
     verb  => 0,
 
     structures  => [],
     cut_point   => -1,
+    findpath    => 10,
+    base_pen    => 500,
     constraint  => '',
     optfunc     => 'eos(1)+eos(2) - 2*efe() + 0.3*(eos(1)-eos(2)+0.00)**2',
 
@@ -181,7 +201,7 @@ exists the equivalent C<get> routine.
 
 =head3 set_verbosity(<INT>)
 
-set the verboisty of warnings to STDERR.
+Set the verboisty of warnings to STDERR.
 
 =cut 
 
@@ -198,7 +218,7 @@ sub get_verbosity {
 
 =head3 set_optfunc(<STRING>)
 
-set the cost-function for sequence optimization.
+Set the cost-function for sequence optimization.
 
 =cut
 
@@ -215,7 +235,7 @@ sub get_optfunc {
 
 =head3 set_constraint(<STRING>)
 
-set the sequence constraints for sequence optimization.
+Set the sequence constraints for sequence optimization.
 
 =cut
 
@@ -230,43 +250,27 @@ sub get_constraint {
   return $self->{constraint};
 }
 
-=head3 set_avoid_motifs(<ARRAY>)
+=head3 set_score_motifs(<HASH>)
 
-set a list of sequence motifs that will cause a penalty during optimization.
-
-=cut
-
-sub set_avoid_motifs {
-  my $self = shift;
-  $self->{avoid} = [@_];
-  return $self->{avoid};
-}
-
-sub get_avoid_motifs {
-  my $self = shift;
-  return $self->{avoid};
-}
-
-=head3 set_avoid_penalty(<INT>)
-
-set the penalty for sequence motifs specified with C<set_avoid_motifs()>
+Set a list of sequence motifs that will recieve a penalty (postive number) or
+bonus (negative number) during optimization.
 
 =cut
 
-sub set_avoid_penalty {
+sub set_score_motifs {
   my ($self, $var) = @_;
-  $self->{avoid_penalty} = $var;
-  return $self->{avoid_penalty};
+  $self->{score_motifs} = $var;
+  return $self->{score_motifs};
 }
 
-sub get_avoid_penalty {
+sub get_score_motifs {
   my $self = shift;
-  return $self->{avoid_penalty};
+  return $self->{score_motifs};
 }
 
 =head3 set_base_probs(<HASH>)
 
-set the penalty for sequence motifs specified with C<set_avoid_motifs()>
+Specify the distribution of nucleotides in the target sequence.
 
 =cut
 
@@ -283,7 +287,7 @@ sub get_base_probs {
 
 =head3 set_parameter_file(<STRING>)
 
-set a parameter file other than rna_turner2004.par
+Set a parameter file other than rna_turner2004.par.
 
 =cut
 
@@ -300,7 +304,7 @@ sub get_parameter_file {
 
 =head3 set_structures(<ARRAY>)
 
-set the list of structures for sequence optimization
+Set the list of structures for sequence optimization.
 
 =cut
 
@@ -334,7 +338,7 @@ sub get_structures {
 
 =head3 set_cut_point(<INT>)
 
-set a cut_point when designing two interacting molecules. The cut point
+Set a cut_point when designing two interacting molecules. The cut point
 indicates the first nucleotide of the second sequence.
 
 =cut
@@ -353,9 +357,44 @@ sub get_cut_point {
   return $self->{cut_point};
 }
 
+=head3 set_findpath_bound(<INT>)
+
+Set the upper bound for findpath when using B<barr(i,j,t)> in the objective function.
+
+=cut
+
+sub set_findpath_bound {
+  my ($self, $var) = @_;
+  $self->{findpath} = $var;
+  return $self->{findpath};
+}
+
+sub get_findpath_bound {
+  my $self = shift;
+  return $self->{findpath};
+}
+
+=head3 set_base_penalty(<INT>)
+
+Set a weighting factor to correct for desired base percentage.
+
+=cut
+
+sub set_base_penalty {
+  my ($self, $var) = @_;
+  $self->{base_pen} = $var;
+  return $self->{base_pen};
+}
+
+sub get_base_penalty {
+  my $self = shift;
+  return $self->{base_pen};
+}
+
+
 =head3 get_num_of_seqs()
 
-get the number of sequences after calling explore_sequence_space()
+Set the number of sequences after calling explore_sequence_space().
 
 =cut
 
@@ -366,7 +405,7 @@ sub get_num_of_seqs {
 
 =head3 get_num_of_nbors()
 
-get the number of neighbors of a sequence after calling explore_sequence_space()
+Get the number of neighbors of a sequence after calling explore_sequence_space().
 
 =cut
 
@@ -378,7 +417,7 @@ sub get_num_of_nbors {
 
 =head3 get_fibo(<INT>)
 
-get the fibronaccy number at position <INT>. The list starts with [0,1] at 
+Get the fibronaccy number at position <INT>. The list starts with [0,1] at 
 positions 0,1. Note that there is no C<set> routine for fibonacci.
 
 =cut
@@ -423,8 +462,8 @@ sub find_dependency_paths {
   for (my $s=0; $s<@structures; ++$s) {
     my $struct = $structures[$s];
 
-    # discard if empty or too short!
-    next if $struct !~ m/[\(\)\[\]]/;
+    # TODO: discard if too short!
+    next if $struct !~ m/[\(\)\[\]\.]/;
 
     # change '[,]' to '(,)'
     if ($struct =~ m/[\[]/) {
@@ -547,8 +586,8 @@ sub explore_sequence_space {
   my $con   =  $self->{constraint};
   my %iupac =%{$self->{iupac}};
 
-  croak "need to comupute depencendy pathways first!" unless @plist;
-  croak "need constraint infromation!" unless $con;
+  croak "need to compute dependency pathways first!" unless @plist;
+  croak "need constraint information!" unless $con;
 
   my ($border, $max_len, $nos) = (0,0,1);
   my @slim_plist;
@@ -749,10 +788,6 @@ sub enumerate_pathways {
   
   $self->{solution_space}->{$pstr.$cycle} = $tree;
   return scalar($tree->get_leaves);
-}
-
-sub fill_solution_space {
-
 }
  
 =head3 rewrite_neighbor($iupac, \$iupac)
@@ -1013,7 +1048,32 @@ sub make_pathseq {
 
 =head2 eval_sequence($sequence)
 
-Evaluate a given sequence according to the cost function.
+Evaluate a given sequence according to the cost function. The final score is
+calculated as the sum over three values: 
+
+(1) The objective function is a simplified interface to access functions of the
+*ViennaRNA package*. Every input secondary structure *can* serve as full target
+conformation or structure constraint. The objective function can include terms
+to compute the free energy of a target structure, the (constrained) ensemble
+free energy, the (conditional) probabilities of secondary structure elements,
+the accessibility of subsequences and the direct-path barriers between two
+structures. All of these terms exist for linear, circular, and cofolded
+molecules, as well as for custom specified temperatures. In the following
+examples, the indices B<i, j> correspond to the secondary structures specified
+in the input file, B<t> is optional to specify the temperature in Celsius. By
+default, computations use the standard temperature of 37C.
+
+
+
+2) score_motifs(): A set of sequence motifs that receive an extra penalty.
+Whenever one of these motifs is found in a sequence, its penalty (or bonus) is
+added to the score of the objective function. 
+
+3) base_prob(): A vector with nuleotide distributions is compared with a
+target distribution vector. The similarity between the vectors is expressed
+as a value s=[0,1]. In order to include and weight this similarity in the
+final score, the penalty is calculated as (1-s)*k, where k is a constant 
+adjustable using set_base_penalty()
 
 =cut
 
@@ -1023,7 +1083,6 @@ sub eval_sequence {
 
   my $verb = $self->{verb};
   my $ofun = $self->{optfunc};
-  my $apen = $self->{avoid_penalty};
   my $ParamFile = $self->{paramfile};
   warn "$seq\n".$ofun."\n" if $verb > 1;
   croak "no structures specified!\n" unless @{$self->{structures}};
@@ -1032,7 +1091,7 @@ sub eval_sequence {
   $RNA::fold_constrained=1;
   $RNA::cut_point=$self->{cut_point};
   RNA::read_parameter_file($ParamFile) if ($ParamFile);
-  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ barr/) {
+  foreach my $func (qw/eos eos_circ efe efe_circ prob prob_circ barr acc/) {
     while ($ofun =~ m/$func\(([0-9\,\s]*)\)/) {
       warn "next: $&\n" if $verb > 1;
 
@@ -1054,107 +1113,41 @@ sub eval_sequence {
   warn $ofun."\n" if $verb > 1;
   my $r = eval $ofun;
   croak $@ if $@;
-  croak "Result of objective function ($r) must not became negative!" if ($r<0);
 
-  my $p = $self->base_prob($seq, 1);
-  my $a = $self->base_avoid($seq, $apen);
+  my $bpen = $self->{base_pen};
 
-  my $d=1;
-  #$d = $self->cofold_defect2($seq) if (1 && $self->{cut_point} != -1);
+  my $p = ($bpen) ? $self->base_prob($seq)*$bpen : 0;
+  my $s = $self->score_motifs($seq);
+  #print "$r, $p, $s, \n";
 
-  return $r*$p*$a*$d;
+  return $r+$p+$s;
 }
 
-sub barr {
-  my ($self, $seq, $i, $j, $t) = @_;
-  $t = 37 unless defined $t;
-  $RNA::temperature=$t;
-  my $kT=0.6163207755;
-
-  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
-  croak "cannot find structure number $j" if $i && !$self->{structures}[$j-1];
-
-  my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
-  my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
-
-  my $e_i = sprintf("%.2f", RNA::energy_of_structure($seq, $s_i, 0));
-  my $sE = RNA::find_saddle($seq, $s_i, $s_j, 10);
-
-  #DEBUG
-  #my $pathway = RNA::get_path($seq, $s_i, $s_j, 10);
-  #for (1 .. $pathway->size()-1) {
-  #  my $struct = $pathway->get($_)->{'s'};
-  #  my $energy= $pathway->get($_)->{'en'};
-  #  substr $struct, $RNA::cut_point, 0, '&' if $RNA::cut_point != -1;
-  #  printf "%s %6.2f\n", $struct, $energy;
-  #}
-  #print "barr: ".sprintf("%.2f", ($sE/100)-$e_i)."\n";
-  
-  return sprintf("%.2f", ($sE/100)-$e_i);
-}
-
-sub cofold_defect2 {
+sub score_motifs {
   my ($self, $seq) = @_;
+  my $penalty = 0;
 
-  my $cpnt = $self->{cut_point};
-  my $left  = substr $seq, 0, $cpnt-1;
-  my $right = substr $seq, $cpnt-1;
-
-  $RNA::cut_point = $cpnt = length($right)+1;
-  my ($costruct, $comfe) = RNA::cofold($right.$right);
-  substr $costruct, $cpnt-1,0,'&';
-  $RNA::cut_point = -1;
-  #print "$costruct, $comfe:\n";
-  return 1 if ($comfe >= 0);
-
-  my @chars = split '', $costruct;
-  my @stack;
-  my $DIM=0;
-  for my $i (0 .. $#chars) {
-    if ($chars[$i] eq '&') {
-      $DIM = (@stack) ? 1 : 0;
-      # got two monomers
-      last;
-    } elsif ($chars[$i] eq '.') {
-      next;
-    } elsif ($chars[$i] eq '(') {
-      push @stack, ($i);
-    } elsif ($chars[$i] eq ')') {
-      my $j = pop @stack;
-      if ($j < $cpnt && $cpnt < ($i)) {
-        $DIM=1; last;
-      }
-    }
-  }
-  return ($DIM) ? -$comfe : 1;
-}
-
-sub base_avoid {
-  my ($self, $seq, $pen) = @_;
-  my $penalty=1;
-
-  my @avoid = @{$self->{avoid}};
+  my %motifs = %{$self->{score_motifs}};
   my $cpnt = $self->{cut_point};
 
   if ($cpnt == -1) {
-    foreach my $string (@avoid) {
-      $penalty *= $pen while ($seq =~ m/$string/g);
+    foreach my $string (keys %motifs) {
+      $penalty += $motifs{$string} while ($seq =~ m/$string/g);
     }
   } else {
     my $left  = substr $seq, 0, $cpnt-1;
     my $right = substr $seq, $cpnt-1;
     #print "$left&$right\n";
-    foreach my $string (@avoid) {
-      $penalty *= $pen while ($left   =~ m/$string/g);
-      $penalty *= $pen while ($right  =~ m/$string/g);
+    foreach my $string (keys %motifs) {
+      $penalty += $motifs{$string} while ($left   =~ m/$string/g);
+      $penalty += $motifs{$string} while ($right  =~ m/$string/g);
     }
   }
   return $penalty;
 }
 
 sub base_prob {
-  my ($self, $seq, $pen) = @_;
-  return 1 unless $pen;
+  my ($self, $seq) = @_;
 
   my %prob = %{$self->{base_probs}};
   my %base;
@@ -1163,21 +1156,79 @@ sub base_prob {
   my $cost=1;
   foreach my $k (keys %base) {
     $base{$k} /= length $seq;
-    #print "Dist $k $base{$k} vs $prob{$k} => \n";
-    if ($base{$k} > $prob{$k}) {
-      $cost *= $base{$k}/$prob{$k};
-    } else {
-      $cost *= $prob{$k}/$base{$k};
-    }
+    # print "Dist $k $base{$k} vs $prob{$k} => \n";
+
+    #$cost += (abs($base{$k}-$prob{$k})/$prob{$k});
+    $cost -= sqrt($base{$k}*$prob{$k});
+
+    #print "$base{$k}, $prob{$k}, $cost\n";
   }
-  return $cost * $pen;
+  return $cost;
 }
 
-sub prob {
+# sub ensemble_defect {
+#   my ($self, $seq, $i, $t) = @_;
+#   my $probs = get_base_pair_probs();
+# 
+# }
+#
+# sub cofold_defect2 {
+#   my ($self, $seq) = @_;
+# 
+#   my $cpnt = $self->{cut_point};
+#   my $left  = substr $seq, 0, $cpnt-1;
+#   my $right = substr $seq, $cpnt-1;
+# 
+#   $RNA::cut_point = $cpnt = length($right)+1;
+#   my ($costruct, $comfe) = RNA::cofold($right.$right);
+#   substr $costruct, $cpnt-1,0,'&';
+#   $RNA::cut_point = -1;
+#   #print "$costruct, $comfe:\n";
+#   return 1 if ($comfe >= 0);
+# 
+#   my @chars = split '', $costruct;
+#   my @stack;
+#   my $DIM=0;
+#   for my $i (0 .. $#chars) {
+#     if ($chars[$i] eq '&') {
+#       $DIM = (@stack) ? 1 : 0;
+#       # got two monomers
+#       last;
+#     } elsif ($chars[$i] eq '.') {
+#       next;
+#     } elsif ($chars[$i] eq '(') {
+#       push @stack, ($i);
+#     } elsif ($chars[$i] eq ')') {
+#       my $j = pop @stack;
+#       if ($j < $cpnt && $cpnt < ($i)) {
+#         $DIM=1; last;
+#       }
+#     }
+#   }
+#   return ($DIM) ? -$comfe : 1;
+# }
+
+=head2 objective function tools
+
+Subfunctions that can be specified in the objective function.
+
+=cut
+
+=head3 barr(i, j, t)
+
+direct path energy barrier from input structure number i to input structure
+number j computed using findpath. The upper bound of findpath is adjustable
+with set_findpath_bound()
+
+=cut
+
+sub barr {
   my ($self, $seq, $i, $j, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  my $kT=0.6163207755;
+
+  #TODO: make set_routine
+  my $fpd = $self->{findpath};
 
   croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
   croak "cannot find structure number $j" if $i && !$self->{structures}[$j-1];
@@ -1185,62 +1236,174 @@ sub prob {
   my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
   my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
 
+  my $e_i = sprintf("%.2f", RNA::energy_of_structure($seq, $s_i, 0));
+  my $sE = RNA::find_saddle($seq, $s_i, $s_j, $fpd);
+
+  return sprintf("%.2f", ($sE/100)-$e_i);
+}
+
+=head3 prob(i, j, t)
+
+Probability of input structure number B<i> given input structure number B<j>.
+The probability is computed from the equilibrium partition functions:
+B<Pr(i|j)=Z_i/Z_j>. Hence, the constraint B<i> B<must> include the constraint
+of B<j> B<(Pr(i|j)=Z_i+j/Z_j)>. Omitting B<j>, or specifying B<j=0> computes the
+probability of B<i> in the unconstrained ensemble B<Pr(i)=Z_i/Z>. 
+
+=cut
+
+sub prob {
+  my ($self, $seq, $i, $j, $t) = @_;
+  $t = 37 unless defined $t;
+  $RNA::temperature=$t;
+  my $kT=0.6163207755;
+  if ($t != 37) {
+    $kT /= 310.15;
+    $kT *= ($t+273.15);
+  }
+
+  croak "prob(): no structure input" unless $i;
+  croak "prob(): cannot find structure number $i" if !$self->{structures}[$i-1];
+  croak "prob(): cannot find structure number $j" if $j && !$self->{structures}[$j-1];
+
+  my $s_i = $self->{structures}[$i-1];
+  my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
+
+  # A hack to make sure people do not fuck up their probability calculations
+  # if ($s_j) {
+  #   print $s_i."\n";
+  #   my $c=0;
+  #   foreach (split //, $s_i) {
+  #     if ($_ ne '.') {
+  #       print "$c, $_ vs ".substr($s_j, $c, 1)."\n";
+  #       substr($s_j, $c, 1, $_);
+  #     }
+  #     $c++;
+  #   }
+  # }
+
   my ($dGi, $dGj, $tmp);
   if ($RNA::cut_point == -1) {
-    $tmp=$s_i; $dGi = RNA::pf_fold($seq, $tmp);
-    $tmp=$s_j; $dGj = RNA::pf_fold($seq, $tmp);
+    # seemingly useless string modification
+    # to avoid ViennaRNA SWIG interface bugs
+    $tmp=$s_i; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+    $dGi = RNA::pf_fold($seq, $tmp);
+    $tmp=$s_j; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+    $dGj = RNA::pf_fold($seq, $tmp);
   } else {
-    $tmp=$s_i; $dGi = RNA::co_pf_fold($seq, $tmp);
-    $tmp=$s_j; $dGj = RNA::co_pf_fold($seq, $tmp);
+    $tmp=$s_i; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+    $dGi = RNA::co_pf_fold($seq, $tmp);
+    $tmp=$s_j; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+    $dGj = RNA::co_pf_fold($seq, $tmp);
   }
 
   return exp(($dGj-$dGi)/$kT);
 }
+
+=head3 prob_circ(i, j, t)
+
+prob(i,j,t) for circular molecules.
+
+=cut
 
 sub prob_circ {
   my ($self, $seq, $i, $j, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
   my $kT=0.6163207755;
+  if ($t != 37) {
+    $kT /= 310.15;
+    $kT *= ($t+273.15);
+  }
 
-  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
-  croak "cannot find structure number $j" if $j && !$self->{structures}[$j-1];
-  carp "ignoring cut_point for circular costfunction" if ($RNA::cut_point != -1);
+  croak "prob_circ(): no structure input" unless $i;
+  croak "prob_circ(): cannot find structure number $i" if !$self->{structures}[$i-1];
+  croak "prob_circ(): cannot find structure number $j" if $j && !$self->{structures}[$j-1];
+  carp  "prob_circ(): ignoring cut_point" if ($RNA::cut_point != -1);
 
-  my $s_i = ($i) ? $self->{structures}[$i-1] : undef;
+  my $s_i = $self->{structures}[$i-1];
   my $s_j = ($j) ? $self->{structures}[$j-1] : undef;
-  my $tmp;
 
-  $tmp=$s_i; my $dGi = RNA::pf_circ_fold($seq, $tmp);
-  $tmp=$s_j; my $dGj = RNA::pf_circ_fold($seq, $tmp);
+  my ($dGi, $dGj, $tmp);
+  # seemingly useless string modification
+  # to avoid ViennaRNA SWIG interface bugs
+  $tmp=$s_i; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+  $dGi = RNA::pf_circ_fold($seq, $tmp);
+  $tmp=$s_j; if ($tmp) { $tmp.='.'; $tmp=substr($tmp,0,-1); }
+  $dGj = RNA::pf_circ_fold($seq, $tmp);
 
   return exp(($dGj-$dGi)/$kT);
 }
+
+=head3 acc(i, j, t)
+
+Accessibility of an RNA/DNA motif. This function is exactly the same as
+prob(i,j,t), however, it is ment to be used with constraints that use the
+character 'x' to specify strictly unpaired regions.
+
+=cut
+
+sub acc {
+  return prob(@_);
+}
+
+=head3 acc_circ(i, j, t)
+
+acc(i,j,t) for circular molecules.
+
+=cut
+
+sub acc_circ {
+  return prob_circ(@_);
+}
+
+=head3 eos(i, t)
+
+Free energy of input structure number B<i> at temperature B<t>. 
+
+=cut
 
 sub eos {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
+  croak "eos(): no structure input" unless $i;
+  croak "eos(): cannot find structure number $i" unless $self->{structures}[$i-1];
   my $str = $self->{structures}[$i-1];
   # ($str =~ m/[\(\)]/) ? k
   return RNA::energy_of_struct($seq, $str);
 }
 
+=head3 eos_circ(i, t)
+
+Free energy of the circular input structure number B<i> at temperature B<t>. 
+
+=cut
+
 sub eos_circ {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  croak "cannot find structure number $i" unless $self->{structures}[$i-1];
+  croak "eos_circ(): no structure input" unless $i;
+  croak "eos_circ(): cannot find structure number $i" unless $self->{structures}[$i-1];
+  carp  "eos_circ(): ignoring cut_point" if ($RNA::cut_point != -1);
   my $str = $self->{structures}[$i-1];
   return RNA::energy_of_circ_struct($seq, $str);
 }
+
+=head3 efe(i, t)
+
+Free energy of a secondary structure ensemble, constraint to be compatible with
+input structure number B<i>. Omitting B<i>, or specifying B<i=0> computes the
+unconstraint ensemble free energy.
+
+=cut
 
 sub efe {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  croak "efe(): cannot find structure number $i" if $i && !$self->{structures}[$i-1];
 
   my $str = ($i) ? $self->{structures}[$i-1] : undef;
   # seemingly useless string modification
@@ -1251,19 +1414,25 @@ sub efe {
   return ($RNA::cut_point == -1) ? RNA::pf_fold($seq, $str) : RNA::co_pf_fold($seq, $str);
 }
 
+=head3 efe_circ(i, t)
+
+Free energy of a circular secondary structure ensemble, constraint to be
+compatible with input structure number B<i>. Omitting B<i>, or specifying
+B<i=0> computes the unconstraint ensemble free energy.
+
+=cut
+
 sub efe_circ {
   my ($self, $seq, $i, $t) = @_;
   $t = 37 unless defined $t;
   $RNA::temperature=$t;
-  croak "cannot find structure number $i" if $i && !$self->{structures}[$i-1];
-  carp "ignoring cut_point for circular costfunction" if ($RNA::cut_point != -1);
+  croak "efe_circ(): cannot find structure number $i" if $i && !$self->{structures}[$i-1];
+  carp  "efe_circ(): ignoring cut_point" if ($RNA::cut_point != -1);
 
   my $str = ($i) ? $self->{structures}[$i-1] : undef;
   # seemingly useless string modification
   # to avoid ViennaRNA SWIG interface bugs
-  if ($str) {
-    $str.='.'; $str=substr($str,0,-1);
-  }
+  if ($str) { $str.='.'; $str=substr($str,0,-1); }
   return RNA::pf_circ_fold($seq, $str);
 }
 
@@ -1332,3 +1501,32 @@ sub get_full_path {
 
 1;
 
+=head1 AUTHOR
+
+Stefan Badelt (stef@tbi.univie.ac.at)
+
+=head1 VERSION-LOG
+
+  1.10 -- changed in cost function interface:
+       *added acc(i,j,t)
+       *added acc_circ(i,j,t)
+       *changed score_motifs():
+            reads a hash of (motif => score) pairs
+            and adds the scores to the cost-function
+       *changed base_prob():
+            compares vector of nucleotide frequencies with specified vector
+       *added base_penalty: 
+            is a factor to weight base_prob() score
+       *changed eval_sequence():
+          now computes score as sum over
+          objective + base_prob + score_motifs
+
+       -- fixed SWIG interface problems for:
+          prob(i,j,t), 
+          prob_circ(i,j,t)
+
+       -- bugfix in find_dependency_paths()
+
+  1.00 -- initial release (ViennaRNA-v2.2)
+
+=cut
