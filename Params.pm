@@ -386,17 +386,20 @@ sub print_parameters {
     $par = \%{$self->{'parameters_rna'}};
     @{$self->{_pnames}} = @{$self->{_pnames_rna}};
     @{$self->{_bnames}} = @{$self->{_bnames_rna}};
+    $self->{'suffix'} = "";
   } elsif($na eq "DNA"){
     print $fh "## DNA parameters\n\n";
     $par = \%{$self->{'parameters_dna'}};
     @{$self->{_pnames}} = @{$self->{_pnames_dna}};
     @{$self->{_bnames}} = @{$self->{_bnames_dna}};
+    $self->{'suffix'} = "_D";
   } elsif($na eq "HYBRID"){
     print $fh "## RNA/DNA hybrid parameters\n\n";
     $self->_generate_hybrid_parameters();
     $par = \%{$self->{'parameters_hybrid'}};
     @{$self->{_pnames}} = @{$self->{_pnames_hybrid}};
     @{$self->{_bnames}} = @{$self->{_bnames_hybrid}};
+    $self->{'suffix'} = "_RD";
   } else {
     print $fh "## Unrecognized parameter set\n\n";
   }
@@ -438,6 +441,7 @@ sub print_parameters_C {
     $footer = $C_footer."\n";
     @{$self->{_pnames}} = @{$self->{_pnames_rna}};
     @{$self->{_bnames}} = @{$self->{_bnames_rna}};
+    $self->{'suffix'} = "";
   } elsif($na eq "DNA"){
     $file_suffix = "_D";
     $par = \%{$self->{'parameters_dna'}};
@@ -445,13 +449,16 @@ sub print_parameters_C {
     $footer = $C_footer_D."\n";
     @{$self->{_pnames}} = @{$self->{_pnames_dna}};
     @{$self->{_bnames}} = @{$self->{_bnames_dna}};
+    $self->{'suffix'} = "_D";
   } elsif($na eq "HYBRID"){
     $file_suffix = "_RD";
+    $self->_generate_hybrid_parameters();
     $par = \%{$self->{'parameters_hybrid'}};
     $header .= "/* RNA/DNA hybrid parameters */\n\n";
     $footer = $C_footer_RD."\n";
     @{$self->{_pnames}} = @{$self->{_pnames_hybrid}};
     @{$self->{_bnames}} = @{$self->{_bnames_hybrid}};
+    $self->{'suffix'} = "_RD";
   } else {
     print STDERR "Unrecognized parameter set in RNA::Params->print_parameters_C()!\n";
   }
@@ -486,7 +493,8 @@ sub print_parameters_C {
             print $intloop_fh $k->{'write_c'}($self,$id, $type, $data), "\n";
             close $intloop_fh;
           } else {
-            print $epar_fh $k->{'write_c'}($self, $id, $type, $data), "\n";
+            my $string = $k->{'write_c'}($self, $id, $type, $data);
+            print $epar_fh $string if defined($string);
           }
         }
       }
@@ -766,7 +774,7 @@ sub average_hashes {
         $val = ($a->{$k} + $b->{$k}) / 2.;
       } else {
         print $a->{$k}, " = ", (ref $a->{$k}), " ", $b->{$k}, " = ", (ref $b->{$k}), "\n";
-        die "do not know what to do with input\n";
+        print STDERR "do not know what to do with input\n";
       }
       $foobar{$k} = $val;
     }
@@ -1595,7 +1603,7 @@ sub write_tloop_C {
   my $type = shift;
   my $tl   = shift;
 
-  return undef if not $type eq "both";
+  return "" if not $type eq "both";
 
   my %tl_e  = %{$tl->{'energies'}};
   my %tl_dh = %{$tl->{'enthalpies'}};
